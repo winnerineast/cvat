@@ -1,18 +1,17 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
-
-import {
-    Row,
-    Col,
-    Icon,
-    Input,
-    Checkbox,
-    Tooltip,
-} from 'antd';
-
+import { Row, Col } from 'antd/lib/grid';
+import Icon from 'antd/lib/icon';
+import Input from 'antd/lib/input';
+import Checkbox from 'antd/lib/checkbox';
+import Tooltip from 'antd/lib/tooltip';
 import Form, { FormComponentProps } from 'antd/lib/form/Form';
 import Text from 'antd/lib/typography/Text';
 
-import patterns from '../../utils/validation-patterns';
+import patterns from 'utils/validation-patterns';
 
 export interface AdvancedConfiguration {
     bugTracker?: string;
@@ -25,22 +24,85 @@ export interface AdvancedConfiguration {
     frameFilter?: string;
     lfs: boolean;
     repository?: string;
+    useZipChunks: boolean;
+    dataChunkSize?: number;
 }
 
 type Props = FormComponentProps & {
-    onSubmit(values: AdvancedConfiguration): void
+    onSubmit(values: AdvancedConfiguration): void;
     installedGit: boolean;
 };
 
+function isPositiveInteger(_: any, value: any, callback: any): void {
+    if (!value) {
+        callback();
+        return;
+    }
+
+    const intValue = +value;
+    if (Number.isNaN(intValue)
+        || !Number.isInteger(intValue) || intValue < 1) {
+        callback('Value must be a positive integer');
+    }
+
+    callback();
+}
+
+function isNonNegativeInteger(_: any, value: any, callback: any): void {
+    if (!value) {
+        callback();
+        return;
+    }
+
+    const intValue = +value;
+    if (Number.isNaN(intValue) || intValue < 0) {
+        callback('Value must be a non negative integer');
+    }
+
+    callback();
+}
+
+function isIntegerRange(min: number, max: number, _: any, value: any, callback: any): void {
+    if (!value) {
+        callback();
+        return;
+    }
+
+    const intValue = +value;
+    if (Number.isNaN(intValue)
+        || !Number.isInteger(intValue)
+        || intValue < min || intValue > max
+    ) {
+        callback(`Value must be an integer [${min}, ${max}]`);
+    }
+
+    callback();
+}
+
 class AdvancedConfigurationForm extends React.PureComponent<Props> {
-    public submit() {
+    public submit(): Promise<void> {
         return new Promise((resolve, reject) => {
-            this.props.form.validateFields((error, values) => {
+            const {
+                form,
+                onSubmit,
+            } = this.props;
+
+            form.validateFields((error, values): void => {
                 if (!error) {
                     const filteredValues = { ...values };
                     delete filteredValues.frameStep;
 
-                    this.props.onSubmit({
+                    if (values.overlapSize && +values.segmentSize <= +values.overlapSize) {
+                        reject(new Error('Overlap size must be more than segment size'));
+                    }
+
+                    if (typeof (values.startFrame) !== 'undefined' && typeof (values.stopFrame) !== 'undefined'
+                        && +values.stopFrame < +values.startFrame
+                    ) {
+                        reject(new Error('Stop frame must be more or equal start frame'));
+                    }
+
+                    onSubmit({
                         ...values,
                         frameFilter: values.frameStep ? `step=${values.frameStep}` : undefined,
                     });
@@ -49,159 +111,191 @@ class AdvancedConfigurationForm extends React.PureComponent<Props> {
                     reject();
                 }
             });
-        })
+        });
     }
 
-    public resetFields() {
-        this.props.form.resetFields();
+    public resetFields(): void {
+        const { form } = this.props;
+        form.resetFields();
     }
 
-    private renderZOrder() {
+    private renderZOrder(): JSX.Element {
+        const { form } = this.props;
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay='Enable order for shapes. Useful for segmentation tasks'>
-                    {this.props.form.getFieldDecorator('zOrder', {
-                        initialValue: false,
-                        valuePropName: 'checked',
-                    })(
-                        <Checkbox>
-                            <Text className='cvat-black-color'>
-                                Z-order
-                            </Text>
-                        </Checkbox>
-                    )}
-                </Tooltip>
+            <Form.Item help='Enables order for shapes. Useful for segmentation tasks'>
+                {form.getFieldDecorator('zOrder', {
+                    initialValue: false,
+                    valuePropName: 'checked',
+                })(
+                    <Checkbox>
+                        <Text className='cvat-text-color'>
+                            Z-order
+                        </Text>
+                    </Checkbox>,
+                )}
             </Form.Item>
         );
     }
 
-    private renderImageQuality() {
+    private renderImageQuality(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay='Defines image compression level'>
-                    <Text className='cvat-black-color'>{'Image quality'}</Text>
-                    {this.props.form.getFieldDecorator('imageQuality', {
+            <Form.Item label={<span>Image quality</span>}>
+                <Tooltip title='Defines image compression level'>
+                    {form.getFieldDecorator('imageQuality', {
                         initialValue: 70,
                         rules: [{
                             required: true,
-                            message: 'This field is required'
+                            message: 'The field is required.',
+                        }, {
+                            validator: isIntegerRange.bind(null, 5, 100),
                         }],
                     })(
                         <Input
                             size='large'
                             type='number'
-                            min={5}
-                            max={100}
-                            suffix={<Icon type='percentage'/>}
-                        />
+                            suffix={<Icon type='percentage' />}
+                        />,
                     )}
                 </Tooltip>
             </Form.Item>
         );
     }
 
-    private renderOverlap() {
+    private renderOverlap(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay='Defines a number of intersected frames between different segments'>
-                    <Text className='cvat-black-color'>{'Overlap size'}</Text>
-                    {this.props.form.getFieldDecorator('overlapSize')(
-                        <Input size='large' type='number'/>
+            <Form.Item label={<span>Overlap size</span>}>
+                <Tooltip title='Defines a number of intersected frames between different segments'>
+                    {form.getFieldDecorator('overlapSize', {
+                        rules: [{
+                            validator: isNonNegativeInteger,
+                        }],
+                    })(
+                        <Input size='large' type='number' />,
                     )}
                 </Tooltip>
             </Form.Item>
         );
     }
 
-    private renderSegmentSize() {
+    private renderSegmentSize(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay='Defines a number of frames in a segment'>
-                    <Text className='cvat-black-color'>{'Segment size'}</Text>
-                    {this.props.form.getFieldDecorator('segmentSize')(
-                        <Input size='large' type='number'/>
+            <Form.Item label={<span>Segment size</span>}>
+                <Tooltip title='Defines a number of frames in a segment'>
+                    {form.getFieldDecorator('segmentSize', {
+                        rules: [{
+                            validator: isPositiveInteger,
+                        }],
+                    })(
+                        <Input size='large' type='number' />,
                     )}
                 </Tooltip>
             </Form.Item>
         );
     }
 
-    private renderStartFrame() {
+    private renderStartFrame(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Text className='cvat-black-color'>{'Start frame'}</Text>
-                {this.props.form.getFieldDecorator('startFrame')(
+            <Form.Item label={<span>Start frame</span>}>
+                {form.getFieldDecorator('startFrame', {
+                    rules: [{
+                        validator: isNonNegativeInteger,
+                    }],
+                })(
                     <Input
                         size='large'
                         type='number'
                         min={0}
                         step={1}
-                    />
+                    />,
                 )}
             </Form.Item>
         );
     }
 
-    private renderStopFrame() {
+    private renderStopFrame(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Text className='cvat-black-color'>{'Stop frame'}</Text>
-                {this.props.form.getFieldDecorator('stopFrame')(
+            <Form.Item label={<span>Stop frame</span>}>
+                {form.getFieldDecorator('stopFrame', {
+                    rules: [{
+                        validator: isNonNegativeInteger,
+                    }],
+                })(
                     <Input
                         size='large'
                         type='number'
                         min={0}
                         step={1}
-                    />
+                    />,
                 )}
             </Form.Item>
         );
     }
 
-    private renderFrameStep() {
+    private renderFrameStep(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Text className='cvat-black-color'>{'Frame step'}</Text>
-                {this.props.form.getFieldDecorator('frameStep')(
+            <Form.Item label={<span>Frame step</span>}>
+                {form.getFieldDecorator('frameStep', {
+                    rules: [{
+                        validator: isPositiveInteger,
+                    }],
+                })(
                     <Input
                         size='large'
                         type='number'
                         min={1}
                         step={1}
-                    />
+                    />,
                 )}
             </Form.Item>
         );
     }
 
-    private renderGitLFSBox() {
+    private renderGitLFSBox(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay='If annotation files are large, you can use git LFS feature'>
-                    {this.props.form.getFieldDecorator('lfs', {
-                        valuePropName: 'checked',
-                        initialValue: false,
-                    })(
-                        <Checkbox>
-                            <Text className='cvat-black-color'>
-                                Use LFS (Large File Support)
-                            </Text>
-                        </Checkbox>
-                    )}
-                </Tooltip>
+            <Form.Item help='If annotation files are large, you can use git LFS feature'>
+                {form.getFieldDecorator('lfs', {
+                    valuePropName: 'checked',
+                    initialValue: false,
+                })(
+                    <Checkbox>
+                        <Text className='cvat-text-color'>
+                            Use LFS (Large File Support):
+                        </Text>
+                    </Checkbox>,
+                )}
             </Form.Item>
         );
     }
 
-    private renderGitRepositoryURL() {
+    private renderGitRepositoryURL(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay={`Attach a git repository to store annotations.
-                                Path is specified in square brackets`}>
-                    <Text className='cvat-black-color'>{'Dataset repository URL'}</Text>
-                    {this.props.form.getFieldDecorator('repository', {
-                        rules: [{
-                            validator: (_, value, callback) => {
+            <Form.Item
+                hasFeedback
+                label={<span>Dataset repository URL</span>}
+                extra='Attach a repository to store annotations there'
+            >
+                {form.getFieldDecorator('repository', {
+                    rules: [{
+                        validator: (_, value, callback): void => {
+                            if (!value) {
+                                callback();
+                            } else {
                                 const [url, path] = value.split(/\s+/);
                                 if (!patterns.validateURL.pattern.test(url)) {
                                     callback('Git URL is not a valid');
@@ -213,25 +307,24 @@ class AdvancedConfigurationForm extends React.PureComponent<Props> {
 
                                 callback();
                             }
-                        }]
-                    })(
-                        <Input
-                            placeholder='e.g. https//github.com/user/repos [annotation/<anno_file_name>.zip]'
-                            size='large'
-                        />
-                    )}
-                </Tooltip>
+                        },
+                    }],
+                })(
+                    <Input
+                        size='large'
+                        placeholder='e.g. https//github.com/user/repos [annotation/<anno_file_name>.zip]'
+                    />,
+                )}
             </Form.Item>
         );
     }
 
-    private renderGit() {
+    private renderGit(): JSX.Element {
         return (
             <>
                 <Row>
                     <Col>
                         {this.renderGitRepositoryURL()}
-
                     </Col>
                 </Row>
                 <Row>
@@ -243,31 +336,102 @@ class AdvancedConfigurationForm extends React.PureComponent<Props> {
         );
     }
 
-    private renderBugTracker() {
+    private renderBugTracker(): JSX.Element {
+        const { form } = this.props;
+
         return (
-            <Form.Item style={{marginBottom: '0px'}}>
-                <Tooltip overlay='Attach issue tracker where the task is described'>
-                    <Text className='cvat-black-color'>{'Issue tracker'}</Text>
-                    {this.props.form.getFieldDecorator('bugTracker', {
+            <Form.Item
+                hasFeedback
+                label={<span>Issue tracker</span>}
+                extra='Attach issue tracker where the task is described'
+            >
+                {form.getFieldDecorator('bugTracker', {
+                    rules: [{
+                        validator: (_, value, callback): void => {
+                            if (value && !patterns.validateURL.pattern.test(value)) {
+                                callback('Issue tracker must be URL');
+                            } else {
+                                callback();
+                            }
+                        },
+                    }],
+                })(
+                    <Input size='large' />,
+                )}
+            </Form.Item>
+        );
+    }
+
+    private renderUzeZipChunks(): JSX.Element {
+        const { form } = this.props;
+        return (
+            <Form.Item help='Force to use zip chunks as compressed data. Actual for videos only.'>
+                {form.getFieldDecorator('useZipChunks', {
+                    initialValue: true,
+                    valuePropName: 'checked',
+                })(
+                    <Checkbox>
+                        <Text className='cvat-text-color'>
+                            Use zip chunks
+                        </Text>
+                    </Checkbox>,
+                )}
+            </Form.Item>
+        );
+    }
+
+    private renderChunkSize(): JSX.Element {
+        const { form } = this.props;
+
+        return (
+            <Form.Item label={<span>Chunk size</span>}>
+                <Tooltip
+                    title={(
+                        <>
+                            Defines a number of frames to be packed in
+                            a chunk when send from client to server.
+                            Server defines automatically if empty.
+                            <br />
+                            Recommended values:
+                            <br />
+                            1080p or less: 36
+                            <br />
+                            2k or less: 8 - 16
+                            <br />
+                            4k or less: 4 - 8
+                            <br />
+                            More: 1 - 4
+                        </>
+                    )}
+                >
+                    {form.getFieldDecorator('dataChunkSize', {
                         rules: [{
-                            ...patterns.validateURL,
-                        }]
+                            validator: isPositiveInteger,
+                        }],
                     })(
-                        <Input
-                            size='large'
-                        />
+                        <Input size='large' type='number' />,
                     )}
                 </Tooltip>
             </Form.Item>
-        )
+        );
     }
 
-    public render() {
+    public render(): JSX.Element {
+        const { installedGit } = this.props;
+
         return (
             <Form>
-                <Row><Col>
-                    {this.renderZOrder()}
-                </Col></Row>
+                <Row>
+                    <Col>
+                        {this.renderZOrder()}
+                    </Col>
+                </Row>
+
+                <Row>
+                    <Col>
+                        {this.renderUzeZipChunks()}
+                    </Col>
+                </Row>
 
                 <Row type='flex' justify='start'>
                     <Col span={7}>
@@ -293,11 +457,17 @@ class AdvancedConfigurationForm extends React.PureComponent<Props> {
                     </Col>
                 </Row>
 
-                { this.props.installedGit ? this.renderGit() : null}
+                <Row type='flex' justify='start'>
+                    <Col span={7}>
+                        {this.renderChunkSize()}
+                    </Col>
+                </Row>
+
+                { installedGit ? this.renderGit() : null}
 
                 <Row>
                     <Col>
-                       {this.renderBugTracker()}
+                        {this.renderBugTracker()}
                     </Col>
                 </Row>
             </Form>

@@ -1,25 +1,32 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
 import { connect } from 'react-redux';
 
 import {
     TasksQuery,
     CombinedState,
-} from '../../reducers/interfaces';
+    ActiveInference,
+} from 'reducers/interfaces';
 
-import TaskItemComponent from '../../components/tasks-page/task-item'
+import TaskItemComponent from 'components/tasks-page/task-item';
 
-import {
-    getTasksAsync,
-} from '../../actions/tasks-actions';
+import { getTasksAsync } from 'actions/tasks-actions';
+import { cancelInferenceAsync } from 'actions/models-actions';
 
 interface StateToProps {
-    deleteActivity: boolean | null;
+    deleted: boolean;
+    hidden: boolean;
     previewImage: string;
     taskInstance: any;
+    activeInference: ActiveInference | null;
 }
 
 interface DispatchToProps {
-    getTasks: (query: TasksQuery) => void;
+    getTasks(query: TasksQuery): void;
+    cancelAutoAnnotation(): void;
 }
 
 interface OwnProps {
@@ -33,33 +40,26 @@ function mapStateToProps(state: CombinedState, own: OwnProps): StateToProps {
     const id = own.taskID;
 
     return {
-        deleteActivity: deletes.byTask[id] ? deletes.byTask[id] : null,
+        hidden: state.tasks.hideEmpty && task.instance.jobs.length === 0,
+        deleted: id in deletes ? deletes[id] === true : false,
         previewImage: task.preview,
         taskInstance: task.instance,
+        activeInference: state.models.inferences[id] || null,
     };
 }
 
-function mapDispatchToProps(dispatch: any): DispatchToProps {
+function mapDispatchToProps(dispatch: any, own: OwnProps): DispatchToProps {
     return {
-        getTasks: (query: TasksQuery): void => {
+        getTasks(query: TasksQuery): void {
             dispatch(getTasksAsync(query));
         },
-    }
-}
-
-type TasksItemContainerProps = StateToProps & DispatchToProps & OwnProps;
-
-function TaskItemContainer(props: TasksItemContainerProps) {
-    return (
-        <TaskItemComponent
-            deleted={props.deleteActivity === true}
-            taskInstance={props.taskInstance}
-            previewImage={props.previewImage}
-        />
-    );
+        cancelAutoAnnotation(): void {
+            dispatch(cancelInferenceAsync(own.taskID));
+        },
+    };
 }
 
 export default connect(
     mapStateToProps,
     mapDispatchToProps,
-)(TaskItemContainer);
+)(TaskItemComponent);

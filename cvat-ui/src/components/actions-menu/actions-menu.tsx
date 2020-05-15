@@ -1,102 +1,155 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
+import './styles.scss';
 import React from 'react';
+import Menu, { ClickParam } from 'antd/lib/menu';
+import Modal from 'antd/lib/modal';
 
-import {
-    Menu,
-    Modal,
-} from 'antd';
+import DumpSubmenu from './dump-submenu';
+import LoadSubmenu from './load-submenu';
+import ExportSubmenu from './export-submenu';
 
-import Text from 'antd/lib/typography/Text';
-import { ClickParam } from 'antd/lib/menu/index';
+interface Props {
+    taskID: number;
+    taskMode: string;
+    bugTracker: string;
 
-import LoaderItemComponent from './loader-item';
-import DumperItemComponent from './dumper-item';
-
-
-interface ActionsMenuComponentProps {
-    taskInstance: any;
-    loaders: any[];
-    dumpers: any[];
+    loaders: string[];
+    dumpers: string[];
     loadActivity: string | null;
     dumpActivities: string[] | null;
+    exportActivities: string[] | null;
+
     installedTFAnnotation: boolean;
     installedTFSegmentation: boolean;
     installedAutoAnnotation: boolean;
-    onLoadAnnotation: (taskInstance: any, loader: any, file: File) => void;
-    onDumpAnnotation: (taskInstance: any, dumper: any) => void;
-    onDeleteTask: (taskInstance: any) => void;
-    onOpenRunWindow: (taskInstance: any) => void;
+    inferenceIsActive: boolean;
+
+    onClickMenu: (params: ClickParam, file?: File) => void;
 }
 
-interface MinActionsMenuProps {
-    taskInstance: any;
-    onDeleteTask: (task: any) => void;
-    onOpenRunWindow: (taskInstance: any) => void;
+export enum Actions {
+    DUMP_TASK_ANNO = 'dump_task_anno',
+    LOAD_TASK_ANNO = 'load_task_anno',
+    EXPORT_TASK_DATASET = 'export_task_dataset',
+    DELETE_TASK = 'delete_task',
+    RUN_AUTO_ANNOTATION = 'run_auto_annotation',
+    OPEN_BUG_TRACKER = 'open_bug_tracker',
 }
 
-export function handleMenuClick(props: MinActionsMenuProps, params: ClickParam) {
-    const { taskInstance } = props;
-    const tracker = taskInstance.bugTracker;
+export default function ActionsMenuComponent(props: Props): JSX.Element {
+    const {
+        taskID,
+        taskMode,
+        bugTracker,
 
-    if (params.keyPath.length !== 2) {
-        switch (params.key) {
-            case 'tracker': {
-                window.open(`${tracker}`, '_blank')
-                return;
-            } case 'auto_annotation': {
-                props.onOpenRunWindow(taskInstance);
-                return;
-            } case 'delete': {
-                const taskID = taskInstance.id;
-                Modal.confirm({
-                    title: `The task ${taskID} will be deleted`,
-                    content: 'All related data (images, annotations) will be lost. Continue?',
-                    onOk: () => {
-                        props.onDeleteTask(taskInstance);
-                    },
-                });
-                return;
-            } default: {
-                return;
+        installedAutoAnnotation,
+        installedTFAnnotation,
+        installedTFSegmentation,
+        inferenceIsActive,
+
+        dumpers,
+        loaders,
+        onClickMenu,
+        dumpActivities,
+        exportActivities,
+        loadActivity,
+    } = props;
+
+    const renderModelRunner = installedAutoAnnotation
+        || installedTFAnnotation || installedTFSegmentation;
+
+    let latestParams: ClickParam | null = null;
+    function onClickMenuWrapper(params: ClickParam | null, file?: File): void {
+        const copyParams = params || latestParams;
+        if (!copyParams) {
+            return;
+        }
+        latestParams = copyParams;
+
+        if (copyParams.keyPath.length === 2) {
+            const [, action] = copyParams.keyPath;
+            if (action === Actions.LOAD_TASK_ANNO) {
+                if (file) {
+                    Modal.confirm({
+                        title: 'Current annotation will be lost',
+                        content: 'You are going to upload new annotations to this task. Continue?',
+                        onOk: () => {
+                            onClickMenu(copyParams, file);
+                        },
+                        okButtonProps: {
+                            type: 'danger',
+                        },
+                        okText: 'Update',
+                    });
+                }
+            } else {
+                onClickMenu(copyParams);
             }
+        } else if (copyParams.key === Actions.DELETE_TASK) {
+            Modal.confirm({
+                title: `The task ${taskID} will be deleted`,
+                content: 'All related data (images, annotations) will be lost. Continue?',
+                onOk: () => {
+                    onClickMenu(copyParams);
+                },
+                okButtonProps: {
+                    type: 'danger',
+                },
+                okText: 'Delete',
+            });
+        } else {
+            onClickMenu(copyParams);
         }
     }
-}
 
-export default function ActionsMenuComponent(props: ActionsMenuComponentProps) {
-    const tracker = props.taskInstance.bugTracker;
-    const renderModelRunner = props.installedAutoAnnotation ||
-        props.installedTFAnnotation || props.installedTFSegmentation;
     return (
-        <Menu selectable={false} className='cvat-actions-menu' onClick={
-            (params: ClickParam) => handleMenuClick(props, params)
-        }>
-            <Menu.SubMenu key='dump' title={<
-                Text>{'Dump annotations'}</Text>
-            }>
-                {
-                    props.dumpers.map((dumper) => DumperItemComponent({
-                        dumper,
-                        taskInstance: props.taskInstance,
-                        dumpActivities: props.dumpActivities,
-                        onDumpAnnotation: props.onDumpAnnotation,
-                }   ))}
-            </Menu.SubMenu>
-            <Menu.SubMenu key='load' title={
-                <Text>{'Upload annotations'}</Text>
-            }>
-                {
-                    props.loaders.map((loader) => LoaderItemComponent({
-                        loader,
-                        taskInstance: props.taskInstance,
-                        loadActivity: props.loadActivity,
-                        onLoadAnnotation: props.onLoadAnnotation,
-                    }))
-                }
-            </Menu.SubMenu>
-            {tracker && <Menu.Item key='tracker'>Open bug tracker</Menu.Item>}
-            {renderModelRunner && <Menu.Item key='auto_annotation'>Automatic annotation</Menu.Item>}
-            <hr/>
-            <Menu.Item key='delete'>Delete</Menu.Item>
+        <Menu
+            selectable={false}
+            className='cvat-actions-menu'
+            onClick={onClickMenuWrapper}
+        >
+            {
+                DumpSubmenu({
+                    taskMode,
+                    dumpers,
+                    dumpActivities,
+                    menuKey: Actions.DUMP_TASK_ANNO,
+                })
+            }
+            {
+                LoadSubmenu({
+                    loaders,
+                    loadActivity,
+                    onFileUpload: (file: File): void => {
+                        onClickMenuWrapper(null, file);
+                    },
+                    menuKey: Actions.LOAD_TASK_ANNO,
+                })
+            }
+            {
+                ExportSubmenu({
+                    exporters: dumpers,
+                    exportActivities,
+                    menuKey: Actions.EXPORT_TASK_DATASET,
+                })
+            }
+            {!!bugTracker && <Menu.Item key={Actions.OPEN_BUG_TRACKER}>Open bug tracker</Menu.Item>}
+            {
+                renderModelRunner
+                    && (
+                        <Menu.Item
+                            disabled={inferenceIsActive}
+                            key={Actions.RUN_AUTO_ANNOTATION}
+                        >
+                            Automatic annotation
+                        </Menu.Item>
+                    )
+            }
+            <hr />
+            <Menu.Item key={Actions.DELETE_TASK}>Delete</Menu.Item>
         </Menu>
     );
 }

@@ -1,25 +1,29 @@
-import { AnyAction } from 'redux';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import { ShareActionTypes } from '../actions/share-actions';
-import { ShareState, ShareFileInfo, ShareItem } from './interfaces';
+import { BoundariesActionTypes, boundariesActions } from 'actions/boundaries-actions';
+import { ShareActionTypes, ShareActions } from 'actions/share-actions';
+import { AuthActionTypes, AuthActions } from 'actions/auth-actions';
+import {
+    ShareState,
+    ShareFileInfo,
+    ShareItem,
+} from './interfaces';
 
 const defaultState: ShareState = {
     root: {
-        name: '/',
+        name: '',
         type: 'DIR',
         children: [],
     },
-    error: null,
 };
 
-export default function (state = defaultState, action: AnyAction): ShareState {
+export default function (
+    state: ShareState = defaultState,
+    action: ShareActions | AuthActions | boundariesActions,
+): ShareState {
     switch (action.type) {
-        case ShareActionTypes.LOAD_SHARE_DATA: {
-            return {
-                ...state,
-                error: null,
-            };
-        }
         case ShareActionTypes.LOAD_SHARE_DATA_SUCCESS: {
             const { values } = action.payload;
             const { directory } = action.payload;
@@ -45,17 +49,11 @@ export default function (state = defaultState, action: AnyAction): ShareState {
                 ...state,
             };
         }
-        case ShareActionTypes.LOAD_SHARE_DATA_FAILED: {
-            const { error } = action.payload;
-
-            return {
-                ...state,
-                error,
-            };
+        case BoundariesActionTypes.RESET_AFTER_ERROR:
+        case AuthActionTypes.LOGOUT_SUCCESS: {
+            return { ...defaultState };
         }
         default:
-            return {
-                ...state,
-            };
+            return state;
     }
 }

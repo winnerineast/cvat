@@ -5,11 +5,10 @@
 
 # pylint: disable=unused-variable
 
-import cv2
 import numpy as np
 from math import ceil
 
-from datumaro.components.extractor import *
+from datumaro.components.extractor import AnnotationType
 
 
 def flatmatvec(mat):
@@ -79,10 +78,12 @@ class RISE:
         return np.reshape(mhmaps, heatmaps.shape)
 
     def apply(self, image, progressive=False):
-        assert len(image.shape) == 3, \
+        import cv2
+
+        assert len(image.shape) in [2, 3], \
             "Expected an input image in (H, W, C) format"
-        assert image.shape[2] in [3, 4], \
-            "Expected BGR or BGRA input"
+        if len(image.shape) == 3:
+            assert image.shape[2] in [3, 4], "Expected BGR or BGRA input"
         image = image[:, :, :3].astype(np.float32)
 
         model = self.model

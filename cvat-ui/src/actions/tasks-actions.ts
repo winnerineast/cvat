@@ -1,8 +1,16 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import { AnyAction, Dispatch, ActionCreator } from 'redux';
 import { ThunkAction } from 'redux-thunk';
-import { TasksQuery } from '../reducers/interfaces';
-
-import getCore from '../core';
+import {
+    TasksQuery,
+    CombinedState,
+} from 'reducers/interfaces';
+import { getCVATStore } from 'cvat-store';
+import getCore from 'cvat-core-wrapper';
+import { getInferenceStatusAsync } from './models-actions';
 
 const cvat = getCore();
 
@@ -16,6 +24,9 @@ export enum TasksActionTypes {
     DUMP_ANNOTATIONS = 'DUMP_ANNOTATIONS',
     DUMP_ANNOTATIONS_SUCCESS = 'DUMP_ANNOTATIONS_SUCCESS',
     DUMP_ANNOTATIONS_FAILED = 'DUMP_ANNOTATIONS_FAILED',
+    EXPORT_DATASET = 'EXPORT_DATASET',
+    EXPORT_DATASET_SUCCESS = 'EXPORT_DATASET_SUCCESS',
+    EXPORT_DATASET_FAILED = 'EXPORT_DATASET_FAILED',
     DELETE_TASK = 'DELETE_TASK',
     DELETE_TASK_SUCCESS = 'DELETE_TASK_SUCCESS',
     DELETE_TASK_FAILED = 'DELETE_TASK_FAILED',
@@ -26,6 +37,7 @@ export enum TasksActionTypes {
     UPDATE_TASK = 'UPDATE_TASK',
     UPDATE_TASK_SUCCESS = 'UPDATE_TASK_SUCCESS',
     UPDATE_TASK_FAILED = 'UPDATE_TASK_FAILED',
+    HIDE_EMPTY_TASKS = 'HIDE_EMPTY_TASKS',
 }
 
 function getTasks(): AnyAction {
@@ -90,6 +102,14 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
         const promises = array
             .map((task): string => (task as any).frames.preview());
 
+        dispatch(
+            getInferenceStatusAsync(
+                array.map(
+                    (task: any): number => task.id,
+                ),
+            ),
+        );
+
         for (const promise of promises) {
             try {
                 // a tricky moment
@@ -149,8 +169,10 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
     return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
         try {
             dispatch(dumpAnnotation(task, dumper));
-            const url = await task.annotations.dump(task.name, dumper);
-            window.location.assign(url);
+            const url = await task.annotations.dump(dumper);
+            const downloadAnchor = (window.document.getElementById('downloadAnchor') as HTMLAnchorElement);
+            downloadAnchor.href = url;
+            downloadAnchor.click();
         } catch (error) {
             dispatch(dumpAnnotationFailed(task, dumper, error));
             return;
@@ -199,6 +221,11 @@ export function loadAnnotationsAsync(task: any, loader: any, file: File):
 ThunkAction<Promise<void>, {}, {}, AnyAction> {
     return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
         try {
+            const store = getCVATStore();
+            const state: CombinedState = store.getState();
+            if (state.tasks.activities.loads[task.id]) {
+                throw Error('Only one loading of annotations for a task allowed at the same time');
+            }
             dispatch(loadAnnotations(task, loader));
             await task.annotations.upload(file, loader);
         } catch (error) {
@@ -207,6 +234,61 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
         }
 
         dispatch(loadAnnotationsSuccess(task));
+    };
+}
+
+function exportDataset(task: any, exporter: any): AnyAction {
+    const action = {
+        type: TasksActionTypes.EXPORT_DATASET,
+        payload: {
+            task,
+            exporter,
+        },
+    };
+
+    return action;
+}
+
+function exportDatasetSuccess(task: any, exporter: any): AnyAction {
+    const action = {
+        type: TasksActionTypes.EXPORT_DATASET_SUCCESS,
+        payload: {
+            task,
+            exporter,
+        },
+    };
+
+    return action;
+}
+
+function exportDatasetFailed(task: any, exporter: any, error: any): AnyAction {
+    const action = {
+        type: TasksActionTypes.EXPORT_DATASET_FAILED,
+        payload: {
+            task,
+            exporter,
+            error,
+        },
+    };
+
+    return action;
+}
+
+export function exportDatasetAsync(task: any, exporter: any):
+ThunkAction<Promise<void>, {}, {}, AnyAction> {
+    return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
+        dispatch(exportDataset(task, exporter));
+
+        try {
+            const url = await task.annotations.exportDataset(exporter.name);
+            const downloadAnchor = (window.document.getElementById('downloadAnchor') as HTMLAnchorElement);
+            downloadAnchor.href = url;
+            downloadAnchor.click();
+        } catch (error) {
+            dispatch(exportDatasetFailed(task, exporter, error));
+        }
+
+        dispatch(exportDatasetSuccess(task, exporter));
     };
 }
 
@@ -307,6 +389,7 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
             labels: data.labels,
             z_order: data.advanced.zOrder,
             image_quality: 70,
+            use_zip_chunks: data.advanced.useZipChunks,
         };
 
         if (data.advanced.bugTracker) {
@@ -329,6 +412,9 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
         }
         if (data.advanced.imageQuality) {
             description.image_quality = data.advanced.imageQuality;
+        }
+        if (data.advanced.dataChunkSize) {
+            description.data_chunk_size = data.advanced.dataChunkSize;
         }
 
         const taskInstance = new cvat.classes.Task(description);
@@ -372,23 +458,23 @@ function updateTask(): AnyAction {
     return action;
 }
 
-function updateTaskSuccess(taskInstance: any): AnyAction {
+function updateTaskSuccess(task: any): AnyAction {
     const action = {
         type: TasksActionTypes.UPDATE_TASK_SUCCESS,
         payload: {
-            taskInstance,
+            task,
         },
     };
 
     return action;
 }
 
-function updateTaskFailed(error: any, taskInstance: any): AnyAction {
+function updateTaskFailed(error: any, task: any): AnyAction {
     const action = {
         type: TasksActionTypes.UPDATE_TASK_FAILED,
         payload: {
             error,
-            taskInstance,
+            task,
         },
     };
 
@@ -441,4 +527,15 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
             dispatch(updateTaskFailed(error, task));
         }
     };
+}
+
+export function hideEmptyTasks(hideEmpty: boolean): AnyAction {
+    const action = {
+        type: TasksActionTypes.HIDE_EMPTY_TASKS,
+        payload: {
+            hideEmpty,
+        },
+    };
+
+    return action;
 }

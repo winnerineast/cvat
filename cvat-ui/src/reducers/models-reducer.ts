@@ -1,28 +1,32 @@
-import { AnyAction } from 'redux';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import { ModelsActionTypes } from '../actions/models-actions';
+import { boundariesActions, BoundariesActionTypes } from 'actions/boundaries-actions';
+import { ModelsActionTypes, ModelsActions } from 'actions/models-actions';
+import { AuthActionTypes, AuthActions } from 'actions/auth-actions';
 import { ModelsState } from './interfaces';
 
 const defaultState: ModelsState = {
     initialized: false,
+    fetching: false,
     creatingStatus: '',
-    creatingError: null,
-    startingError: null,
-    fetchingError: null,
-    deletingErrors: {},
     models: [],
     visibleRunWindows: false,
     activeRunTask: null,
-    runnings: [],
+    inferences: {},
 };
 
-export default function (state = defaultState, action: AnyAction): ModelsState {
+export default function (
+    state = defaultState,
+    action: ModelsActions | AuthActions | boundariesActions,
+): ModelsState {
     switch (action.type) {
         case ModelsActionTypes.GET_MODELS: {
             return {
                 ...state,
-                fetchingError: null,
                 initialized: false,
+                fetching: true,
             };
         }
         case ModelsActionTypes.GET_MODELS_SUCCESS: {
@@ -30,21 +34,14 @@ export default function (state = defaultState, action: AnyAction): ModelsState {
                 ...state,
                 models: action.payload.models,
                 initialized: true,
+                fetching: false,
             };
         }
         case ModelsActionTypes.GET_MODELS_FAILED: {
             return {
                 ...state,
-                fetchingError: action.payload.error,
                 initialized: true,
-            };
-        }
-        case ModelsActionTypes.DELETE_MODEL: {
-            const errors = { ...state.deletingErrors };
-            delete errors[action.payload.id];
-            return {
-                ...state,
-                deletingErrors: errors,
+                fetching: false,
             };
         }
         case ModelsActionTypes.DELETE_MODEL_SUCCESS: {
@@ -55,18 +52,9 @@ export default function (state = defaultState, action: AnyAction): ModelsState {
                 ),
             };
         }
-        case ModelsActionTypes.DELETE_MODEL_FAILED: {
-            const errors = { ...state.deletingErrors };
-            errors[action.payload.id] = action.payload.error;
-            return {
-                ...state,
-                deletingErrors: errors,
-            };
-        }
         case ModelsActionTypes.CREATE_MODEL: {
             return {
                 ...state,
-                creatingError: null,
                 creatingStatus: '',
             };
         }
@@ -79,7 +67,6 @@ export default function (state = defaultState, action: AnyAction): ModelsState {
         case ModelsActionTypes.CREATE_MODEL_FAILED: {
             return {
                 ...state,
-                creatingError: action.payload.error,
                 creatingStatus: '',
             };
         }
@@ -88,18 +75,6 @@ export default function (state = defaultState, action: AnyAction): ModelsState {
                 ...state,
                 initialized: false,
                 creatingStatus: 'CREATED',
-            };
-        }
-        case ModelsActionTypes.INFER_MODEL: {
-            return {
-                ...state,
-                startingError: null,
-            };
-        }
-        case ModelsActionTypes.INFER_MODEL_FAILED: {
-            return {
-                ...state,
-                startingError: action.payload.error,
             };
         }
         case ModelsActionTypes.SHOW_RUN_MODEL_DIALOG: {
@@ -116,10 +91,43 @@ export default function (state = defaultState, action: AnyAction): ModelsState {
                 activeRunTask: null,
             };
         }
-        default: {
+        case ModelsActionTypes.GET_INFERENCE_STATUS_SUCCESS: {
+            const { inferences } = state;
+            if (action.payload.activeInference.status === 'finished') {
+                delete inferences[action.payload.taskID];
+            } else {
+                inferences[action.payload.taskID] = action.payload.activeInference;
+            }
+
             return {
                 ...state,
+                inferences: { ...inferences },
             };
+        }
+        case ModelsActionTypes.GET_INFERENCE_STATUS_FAILED: {
+            const { inferences } = state;
+            delete inferences[action.payload.taskID];
+
+            return {
+                ...state,
+                inferences: { ...inferences },
+            };
+        }
+        case ModelsActionTypes.CANCEL_INFERENCE_SUCCESS: {
+            const { inferences } = state;
+            delete inferences[action.payload.taskID];
+
+            return {
+                ...state,
+                inferences: { ...inferences },
+            };
+        }
+        case BoundariesActionTypes.RESET_AFTER_ERROR:
+        case AuthActionTypes.LOGOUT_SUCCESS: {
+            return { ...defaultState };
+        }
+        default: {
+            return state;
         }
     }
 }

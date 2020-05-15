@@ -1,7 +1,6 @@
-/*
-* Copyright (C) 2019 Intel Corporation
-* SPDX-License-Identifier: MIT
-*/
+// Copyright (C) 2019-2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
 import * as SVG from 'svg.js';
 import consts from './consts';
@@ -26,11 +25,30 @@ export interface BBox {
     y: number;
 }
 
-// Translate point array from the client coordinate system
-// to a coordinate system of a canvas
+interface Point {
+    x: number;
+    y: number;
+}
+export interface DrawnState {
+    clientID: number;
+    outside?: boolean;
+    occluded?: boolean;
+    hidden?: boolean;
+    lock: boolean;
+    shapeType: string;
+    points?: number[];
+    attributes: Record<number, string>;
+    zOrder?: number;
+    pinned?: boolean;
+    updated: number;
+    frame: number;
+}
+
+// Translate point array from the canvas coordinate system
+// to the coordinate system of a client
 export function translateFromSVG(svg: SVGSVGElement, points: number[]): number[] {
     const output = [];
-    const transformationMatrix = svg.getScreenCTM();
+    const transformationMatrix = svg.getScreenCTM() as DOMMatrix;
     let pt = svg.createSVGPoint();
     for (let i = 0; i < points.length - 1; i += 2) {
         pt.x = points[i];
@@ -42,11 +60,11 @@ export function translateFromSVG(svg: SVGSVGElement, points: number[]): number[]
     return output;
 }
 
-// Translate point array from a coordinate system of a canvas
-// to the client coordinate system
+// Translate point array from the coordinate system of a client
+// to the canvas coordinate system
 export function translateToSVG(svg: SVGSVGElement, points: number[]): number[] {
     const output = [];
-    const transformationMatrix = svg.getScreenCTM().inverse();
+    const transformationMatrix = (svg.getScreenCTM() as DOMMatrix).inverse();
     let pt = svg.createSVGPoint();
     for (let i = 0; i < points.length; i += 2) {
         pt.x = points[i];
@@ -58,23 +76,13 @@ export function translateToSVG(svg: SVGSVGElement, points: number[]): number[] {
     return output;
 }
 
-// Translate point array from the first canvas coordinate system
-// to another
-export function translateBetweenSVG(
-    from: SVGSVGElement,
-    to: SVGSVGElement,
-    points: number[],
-): number[] {
-    return translateToSVG(to, translateFromSVG(from, points));
-}
-
 export function pointsToString(points: number[]): string {
     return points.reduce((acc, val, idx): string => {
         if (idx % 2) {
             return `${acc},${val}`;
         }
 
-        return `${acc} ${val}`;
+        return `${acc} ${val}`.trim();
     }, '');
 }
 
@@ -110,4 +118,27 @@ export function displayShapeSize(
     };
 
     return shapeSize;
+}
+
+export function convertToArray(points: Point[]): number[][] {
+    const arr: number[][] = [];
+    points.forEach((point: Point): void => {
+        arr.push([point.x, point.y]);
+    });
+    return arr;
+}
+
+export function parsePoints(stringified: string): Point[] {
+    return stringified.trim().split(/\s/).map((point: string): Point => {
+        const [x, y] = point.split(',').map((coord: string): number => +coord);
+        return { x, y };
+    });
+}
+
+export function stringifyPoints(points: Point[]): string {
+    return points.map((point: Point): string => `${point.x},${point.y}`).join(' ');
+}
+
+export function clamp(x: number, min: number, max: number): number {
+    return Math.min(Math.max(x, min), max);
 }

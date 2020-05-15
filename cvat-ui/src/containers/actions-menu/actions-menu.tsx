@@ -1,86 +1,181 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
 import { connect } from 'react-redux';
 
-import ActionsMenuComponent from '../../components/actions-menu/actions-menu';
-import { CombinedState } from '../../reducers/interfaces';
-import { showRunModelDialog } from '../../actions/models-actions';
+import ActionsMenuComponent, { Actions } from 'components/actions-menu/actions-menu';
+import {
+    CombinedState,
+} from 'reducers/interfaces';
+
+import { modelsActions } from 'actions/models-actions';
 import {
     dumpAnnotationsAsync,
     loadAnnotationsAsync,
+    exportDatasetAsync,
     deleteTaskAsync,
-} from '../../actions/tasks-actions';
+} from 'actions/tasks-actions';
+import { ClickParam } from 'antd/lib/menu';
 
 interface OwnProps {
     taskInstance: any;
 }
 
 interface StateToProps {
-    loaders: any[];
-    dumpers: any[];
+    annotationFormats: any;
     loadActivity: string | null;
     dumpActivities: string[] | null;
+    exportActivities: string[] | null;
     installedTFAnnotation: boolean;
     installedTFSegmentation: boolean;
     installedAutoAnnotation: boolean;
-};
+    inferenceIsActive: boolean;
+}
 
 interface DispatchToProps {
-    onLoadAnnotation: (taskInstance: any, loader: any, file: File) => void;
-    onDumpAnnotation: (taskInstance: any, dumper: any) => void;
-    onDeleteTask: (taskInstance: any) => void;
-    onOpenRunWindow: (taskInstance: any) => void;
+    loadAnnotations: (taskInstance: any, loader: any, file: File) => void;
+    dumpAnnotations: (taskInstance: any, dumper: any) => void;
+    exportDataset: (taskInstance: any, exporter: any) => void;
+    deleteTask: (taskInstance: any) => void;
+    openRunModelWindow: (taskInstance: any) => void;
 }
 
 function mapStateToProps(state: CombinedState, own: OwnProps): StateToProps {
-    const { formats } = state;
-    const { dumps } = state.tasks.activities;
-    const { loads } = state.tasks.activities;
-    const { plugins } = state.plugins;
-    const id = own.taskInstance.id;
+    const {
+        taskInstance: {
+            id: tid,
+        },
+    } = own;
+
+    const {
+        formats: {
+            annotationFormats,
+        },
+        plugins: {
+            list: {
+                TF_ANNOTATION: installedTFAnnotation,
+                TF_SEGMENTATION: installedTFSegmentation,
+                AUTO_ANNOTATION: installedAutoAnnotation,
+            },
+        },
+        tasks: {
+            activities: {
+                dumps,
+                loads,
+                exports: activeExports,
+            },
+        },
+    } = state;
 
     return {
-        installedTFAnnotation: plugins.TF_ANNOTATION,
-        installedTFSegmentation: plugins.TF_SEGMENTATION,
-        installedAutoAnnotation: plugins.AUTO_ANNOTATION,
-        dumpActivities: dumps.byTask[id] ? dumps.byTask[id] : null,
-        loadActivity: loads.byTask[id] ? loads.byTask[id] : null,
-        loaders: formats.loaders,
-        dumpers: formats.dumpers,
+        installedTFAnnotation,
+        installedTFSegmentation,
+        installedAutoAnnotation,
+        dumpActivities: tid in dumps ? dumps[tid] : null,
+        exportActivities: tid in activeExports ? activeExports[tid] : null,
+        loadActivity: tid in loads ? loads[tid] : null,
+        annotationFormats,
+        inferenceIsActive: tid in state.models.inferences,
     };
 }
 
 function mapDispatchToProps(dispatch: any): DispatchToProps {
     return {
-        onLoadAnnotation: (taskInstance: any, loader: any, file: File) => {
+        loadAnnotations: (taskInstance: any, loader: any, file: File): void => {
             dispatch(loadAnnotationsAsync(taskInstance, loader, file));
         },
-        onDumpAnnotation: (taskInstance: any, dumper: any) => {
+        dumpAnnotations: (taskInstance: any, dumper: any): void => {
             dispatch(dumpAnnotationsAsync(taskInstance, dumper));
         },
-        onDeleteTask: (taskInstance: any) => {
+        exportDataset: (taskInstance: any, exporter: any): void => {
+            dispatch(exportDatasetAsync(taskInstance, exporter));
+        },
+        deleteTask: (taskInstance: any): void => {
             dispatch(deleteTaskAsync(taskInstance));
         },
-        onOpenRunWindow: (taskInstance: any) => {
-            dispatch(showRunModelDialog(taskInstance));
-        }
+        openRunModelWindow: (taskInstance: any): void => {
+            dispatch(modelsActions.showRunModelDialog(taskInstance));
+        },
     };
 }
 
-function ActionsMenuContainer(props: OwnProps & StateToProps & DispatchToProps) {
+function ActionsMenuContainer(props: OwnProps & StateToProps & DispatchToProps): JSX.Element {
+    const {
+        taskInstance,
+        annotationFormats: {
+            loaders,
+            dumpers,
+        },
+        loadActivity,
+        dumpActivities,
+        exportActivities,
+        inferenceIsActive,
+        installedAutoAnnotation,
+        installedTFAnnotation,
+        installedTFSegmentation,
+
+        loadAnnotations,
+        dumpAnnotations,
+        exportDataset,
+        deleteTask,
+        openRunModelWindow,
+    } = props;
+
+    function onClickMenu(params: ClickParam, file?: File): void {
+        if (params.keyPath.length > 1) {
+            const [additionalKey, action] = params.keyPath;
+            if (action === Actions.DUMP_TASK_ANNO) {
+                const format = additionalKey;
+                const [dumper] = dumpers
+                    .filter((_dumper: any): boolean => _dumper.name === format);
+                if (dumper) {
+                    dumpAnnotations(taskInstance, dumper);
+                }
+            } else if (action === Actions.LOAD_TASK_ANNO) {
+                const [format] = additionalKey.split('::');
+                const [loader] = loaders
+                    .filter((_loader: any): boolean => _loader.name === format);
+                if (loader && file) {
+                    loadAnnotations(taskInstance, loader, file);
+                }
+            } else if (action === Actions.EXPORT_TASK_DATASET) {
+                const format = additionalKey;
+                const [exporter] = dumpers
+                    .filter((_exporter: any): boolean => _exporter.name === format);
+                if (exporter) {
+                    exportDataset(taskInstance, exporter);
+                }
+            }
+        } else {
+            const [action] = params.keyPath;
+            if (action === Actions.DELETE_TASK) {
+                deleteTask(taskInstance);
+            } else if (action === Actions.OPEN_BUG_TRACKER) {
+                // eslint-disable-next-line
+                window.open(`${taskInstance.bugTracker}`, '_blank');
+            } else if (action === Actions.RUN_AUTO_ANNOTATION) {
+                openRunModelWindow(taskInstance);
+            }
+        }
+    }
+
     return (
         <ActionsMenuComponent
-            taskInstance={props.taskInstance}
-            loaders={props.loaders}
-            dumpers={props.dumpers}
-            loadActivity={props.loadActivity}
-            dumpActivities={props.dumpActivities}
-            installedTFAnnotation={props.installedTFAnnotation}
-            installedTFSegmentation={props.installedTFSegmentation}
-            installedAutoAnnotation={props.installedAutoAnnotation}
-            onLoadAnnotation={props.onLoadAnnotation}
-            onDumpAnnotation={props.onDumpAnnotation}
-            onDeleteTask={props.onDeleteTask}
-            onOpenRunWindow={props.onOpenRunWindow}
+            taskID={taskInstance.id}
+            taskMode={taskInstance.mode}
+            bugTracker={taskInstance.bugTracker}
+            loaders={loaders.map((loader: any): string => `${loader.name}::${loader.format}`)}
+            dumpers={dumpers.map((dumper: any): string => dumper.name)}
+            loadActivity={loadActivity}
+            dumpActivities={dumpActivities}
+            exportActivities={exportActivities}
+            inferenceIsActive={inferenceIsActive}
+            installedAutoAnnotation={installedAutoAnnotation}
+            installedTFAnnotation={installedTFAnnotation}
+            installedTFSegmentation={installedTFSegmentation}
+            onClickMenu={onClickMenu}
         />
     );
 }

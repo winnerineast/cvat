@@ -1,18 +1,19 @@
 
-# Copyright (C) 2018 Intel Corporation
+# Copyright (C) 2018-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 
+
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
+from rest_framework.decorators import api_view
 from rules.contrib.views import permission_required, objectgetter
 from cvat.apps.authentication.decorators import login_required
+from cvat.apps.dataset_manager.task import put_task_data
 from cvat.apps.engine.models import Task as TaskModel
 from cvat.apps.engine.serializers import LabeledDataSerializer
-from cvat.apps.engine.annotation import put_task_data
+from cvat.apps.engine.frame_provider import FrameProvider
 
 import django_rq
-import fnmatch
-import json
 import os
 import rq
 
@@ -24,13 +25,7 @@ import sys
 import skimage.io
 from skimage.measure import find_contours, approximate_polygon
 
-
-def load_image_into_numpy(image):
-    (im_width, im_height) = image.size
-    return np.array(image.getdata()).reshape((im_height, im_width, 3)).astype(np.uint8)
-
-
-def run_tensorflow_auto_segmentation(image_list, labels_mapping, treshold):
+def run_tensorflow_auto_segmentation(frame_provider, labels_mapping, treshold):
     def _convert_to_int(boolean_mask):
         return boolean_mask.astype(np.uint8)
 
@@ -86,16 +81,17 @@ def run_tensorflow_auto_segmentation(image_list, labels_mapping, treshold):
 
     ## RUN OBJECT DETECTION
     result = {}
-    for image_num, image_path in enumerate(image_list):
+    frames = frame_provider.get_frames(frame_provider.Quality.ORIGINAL)
+    for image_num, (image_bytes, _) in enumerate(frames):
         job.refresh()
         if 'cancel' in job.meta:
             del job.meta['cancel']
             job.save()
             return None
-        job.meta['progress'] = image_num * 100 / len(image_list)
+        job.meta['progress'] = image_num * 100 / len(frame_provider)
         job.save_meta()
 
-        image = skimage.io.imread(image_path)
+        image = skimage.io.imread(image_bytes)
 
         # for multiple image detection, "batch size" must be equal to number of images
         r = model.detect([image], verbose=1)
@@ -114,20 +110,6 @@ def run_tensorflow_auto_segmentation(image_list, labels_mapping, treshold):
                         [image_num, segmentation])
 
     return result
-
-
-def make_image_list(path_to_data):
-    def get_image_key(item):
-        return int(os.path.splitext(os.path.basename(item))[0])
-
-    image_list = []
-    for root, _, filenames in os.walk(path_to_data):
-        for filename in fnmatch.filter(filenames, '*.jpg'):
-                image_list.append(os.path.join(root, filename))
-
-    image_list.sort(key=get_image_key)
-    return image_list
-
 
 def convert_to_cvat_format(data):
     result = {
@@ -164,12 +146,12 @@ def create_thread(tid, labels_mapping, user):
         # Get job indexes and segment length
         db_task = TaskModel.objects.get(pk=tid)
         # Get image list
-        image_list = make_image_list(db_task.get_data_dirname())
+        frame_provider = FrameProvider(db_task.data)
 
         # Run auto segmentation by tf
         result = None
         slogger.glob.info("auto segmentation with tensorflow framework for task {}".format(tid))
-        result = run_tensorflow_auto_segmentation(image_list, labels_mapping, TRESHOLD)
+        result = run_tensorflow_auto_segmentation(frame_provider, labels_mapping, TRESHOLD)
 
         if result is None:
             slogger.glob.info('auto segmentation for task {} canceled by user'.format(tid))
@@ -179,20 +161,21 @@ def create_thread(tid, labels_mapping, user):
         result = convert_to_cvat_format(result)
         serializer = LabeledDataSerializer(data = result)
         if serializer.is_valid(raise_exception=True):
-            put_task_data(tid, user, result)
+            put_task_data(tid, result)
         slogger.glob.info('auto segmentation for task {} done'.format(tid))
     except Exception as ex:
         try:
             slogger.task[tid].exception('exception was occured during auto segmentation of the task', exc_info=True)
         except Exception:
-            slogger.glob.exception('exception was occured during auto segmentation of the task {}'.format(tid), exc_into=True)
+            slogger.glob.exception('exception was occured during auto segmentation of the task {}'.format(tid), exc_info=True)
         raise ex
 
+@api_view(['POST'])
 @login_required
 def get_meta_info(request):
     try:
         queue = django_rq.get_queue('low')
-        tids = json.loads(request.body.decode('utf-8'))
+        tids = request.data
         result = {}
         for tid in tids:
             job = queue.fetch_job('auto_segmentation.create/{}'.format(tid))
@@ -204,7 +187,7 @@ def get_meta_info(request):
 
         return JsonResponse(result)
     except Exception as ex:
-        slogger.glob.exception('exception was occured during tf meta request', exc_into=True)
+        slogger.glob.exception('exception was occured during tf meta request', exc_info=True)
         return HttpResponseBadRequest(str(ex))
 
 
@@ -227,20 +210,20 @@ def create(request, tid):
         auto_segmentation_labels = { "BG": 0,
             "person": 1, "bicycle": 2, "car": 3, "motorcycle": 4, "airplane": 5,
             "bus": 6, "train": 7, "truck": 8, "boat": 9, "traffic_light": 10,
-            "fire_hydrant": 11, "stop_sign": 13, "parking_meter": 14, "bench": 15,
-            "bird": 16, "cat": 17, "dog": 18, "horse": 19, "sheep": 20, "cow": 21,
-            "elephant": 22, "bear": 23, "zebra": 24, "giraffe": 25, "backpack": 27,
-            "umbrella": 28, "handbag": 31, "tie": 32, "suitcase": 33, "frisbee": 34,
-            "skis": 35, "snowboard": 36, "sports_ball": 37, "kite": 38, "baseball_bat": 39,
-            "baseball_glove": 40, "skateboard": 41, "surfboard": 42, "tennis_racket": 43,
-            "bottle": 44, "wine_glass": 46, "cup": 47, "fork": 48, "knife": 49, "spoon": 50,
-            "bowl": 51, "banana": 52, "apple": 53, "sandwich": 54, "orange": 55, "broccoli": 56,
-            "carrot": 57, "hot_dog": 58, "pizza": 59, "donut": 60, "cake": 61, "chair": 62,
-            "couch": 63, "potted_plant": 64, "bed": 65, "dining_table": 67, "toilet": 70,
-            "tv": 72, "laptop": 73, "mouse": 74, "remote": 75, "keyboard": 76, "cell_phone": 77,
-            "microwave": 78, "oven": 79, "toaster": 80, "sink": 81, "refrigerator": 83,
-            "book": 84, "clock": 85, "vase": 86, "scissors": 87, "teddy_bear": 88, "hair_drier": 89,
-            "toothbrush": 90
+            "fire_hydrant": 11, "stop_sign": 12, "parking_meter": 13, "bench": 14,
+            "bird": 15, "cat": 16, "dog": 17, "horse": 18, "sheep": 19, "cow": 20,
+            "elephant": 21, "bear": 22, "zebra": 23, "giraffe": 24, "backpack": 25,
+            "umbrella": 26, "handbag": 27, "tie": 28, "suitcase": 29, "frisbee": 30,
+            "skis": 31, "snowboard": 32, "sports_ball": 33, "kite": 34, "baseball_bat": 35,
+            "baseball_glove": 36, "skateboard": 37, "surfboard": 38, "tennis_racket": 39,
+            "bottle": 40, "wine_glass": 41, "cup": 42, "fork": 43, "knife": 44, "spoon": 45,
+            "bowl": 46, "banana": 47, "apple": 48, "sandwich": 49, "orange": 50, "broccoli": 51,
+            "carrot": 52, "hot_dog": 53, "pizza": 54, "donut": 55, "cake": 56, "chair": 57,
+            "couch": 58, "potted_plant": 59, "bed": 60, "dining_table": 61, "toilet": 62,
+            "tv": 63, "laptop": 64, "mouse": 65, "remote": 66, "keyboard": 67, "cell_phone": 68,
+            "microwave": 69, "oven": 70, "toaster": 71, "sink": 72, "refrigerator": 73,
+            "book": 74, "clock": 75, "vase": 76, "scissors": 77, "teddy_bear": 78, "hair_drier": 79,
+            "toothbrush": 80
             }
 
         labels_mapping = {}

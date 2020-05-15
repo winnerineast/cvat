@@ -1,61 +1,80 @@
-import React from 'react';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import { connect } from 'react-redux';
 
-import { logoutAsync } from '../../actions/auth-actions';
-import {
-    SupportedPlugins,
-    CombinedState,
-} from '../../reducers/interfaces';
+import getCore from 'cvat-core-wrapper';
+import HeaderComponent from 'components/header/header';
+import { SupportedPlugins, CombinedState } from 'reducers/interfaces';
+import { logoutAsync } from 'actions/auth-actions';
 
-import HeaderComponent from '../../components/header/header';
+const core = getCore();
 
 interface StateToProps {
+    logoutFetching: boolean;
     installedAnalytics: boolean;
     installedAutoAnnotation: boolean;
     installedTFSegmentation: boolean;
     installedTFAnnotation: boolean;
     username: string;
-    logoutError: any;
+    toolName: string;
+    serverHost: string;
+    serverVersion: string;
+    serverDescription: string;
+    coreVersion: string;
+    canvasVersion: string;
+    uiVersion: string;
+    switchSettingsShortcut: string;
 }
 
 interface DispatchToProps {
-    logout(): void;
+    onLogout: typeof logoutAsync;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
-    const { auth } = state;
-    const { plugins } = state.plugins;
+    const {
+        auth: {
+            fetching: logoutFetching,
+            user: {
+                username,
+            },
+        },
+        plugins: {
+            list,
+        },
+        about: {
+            server,
+            packageVersion,
+        },
+        shortcuts: {
+            normalizedKeyMap,
+        },
+    } = state;
+
     return {
-        installedAnalytics: plugins[SupportedPlugins.ANALYTICS],
-        installedAutoAnnotation: plugins[SupportedPlugins.AUTO_ANNOTATION],
-        installedTFSegmentation: plugins[SupportedPlugins.TF_SEGMENTATION],
-        installedTFAnnotation: plugins[SupportedPlugins.TF_ANNOTATION],
-        username: auth.user.username,
-        logoutError: auth.logoutError,
+        logoutFetching,
+        installedAnalytics: list[SupportedPlugins.ANALYTICS],
+        installedAutoAnnotation: list[SupportedPlugins.AUTO_ANNOTATION],
+        installedTFSegmentation: list[SupportedPlugins.TF_SEGMENTATION],
+        installedTFAnnotation: list[SupportedPlugins.TF_ANNOTATION],
+        username,
+        toolName: server.name as string,
+        serverHost: core.config.backendAPI.slice(0, -7),
+        serverDescription: server.description as string,
+        serverVersion: server.version as string,
+        coreVersion: packageVersion.core,
+        canvasVersion: packageVersion.canvas,
+        uiVersion: packageVersion.ui,
+        switchSettingsShortcut: normalizedKeyMap.OPEN_SETTINGS,
     };
 }
 
-function mapDispatchToProps(dispatch: any): DispatchToProps {
-    return {
-        logout: () => dispatch(logoutAsync()),
-    }
-}
-
-function HeaderContainer(props: StateToProps & DispatchToProps) {
-    return (
-        <HeaderComponent
-            installedAnalytics={props.installedAnalytics}
-            installedTFAnnotation={props.installedTFAnnotation}
-            installedTFSegmentation={props.installedTFSegmentation}
-            installedAutoAnnotation={props.installedAutoAnnotation}
-            onLogout={props.logout}
-            username={props.username}
-            logoutError={props.logoutError ? props.logoutError.toString() : ''}
-        />
-    );
-}
+const mapDispatchToProps: DispatchToProps = {
+    onLogout: logoutAsync,
+};
 
 export default connect(
     mapStateToProps,
     mapDispatchToProps,
-)(HeaderContainer);
+)(HeaderComponent);

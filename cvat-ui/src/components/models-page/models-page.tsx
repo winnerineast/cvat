@@ -1,54 +1,73 @@
-import React from 'react';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import {
-    Spin,
-} from 'antd';
+import './styles.scss';
+import React from 'react';
+import Spin from 'antd/lib/spin';
 
 import TopBarComponent from './top-bar';
 import UploadedModelsList from './uploaded-models-list';
 import BuiltModelsList from './built-models-list';
 import EmptyListComponent from './empty-list';
+import FeedbackComponent from '../feedback/feedback';
 import { Model } from '../../reducers/interfaces';
 
 interface Props {
     installedAutoAnnotation: boolean;
     installedTFSegmentation: boolean;
     installedTFAnnotation: boolean;
-    modelsAreBeingFetched: boolean;
-    modelsFetchingError: any;
+    modelsInitialized: boolean;
+    modelsFetching: boolean;
     registeredUsers: any[];
     models: Model[];
     getModels(): void;
     deleteModel(id: number): void;
 }
 
-export default function ModelsPageComponent(props: Props) {
-    if (props.modelsAreBeingFetched) {
-        props.getModels();
-        return (
-            <Spin size='large' style={{margin: '25% 45%'}}/>
-        );
-    } else {
-        const uploadedModels = props.models.filter((model) => model.id !== null);
-        const integratedModels = props.models.filter((model) => model.id === null);
+export default function ModelsPageComponent(props: Props): JSX.Element {
+    const {
+        installedAutoAnnotation,
+        installedTFSegmentation,
+        installedTFAnnotation,
+        modelsInitialized,
+        modelsFetching,
+        registeredUsers,
+        models,
 
+        deleteModel,
+    } = props;
+
+    if (!modelsInitialized) {
+        if (!modelsFetching) {
+            props.getModels();
+        }
         return (
-            <div className='cvat-models-page'>
-                <TopBarComponent installedAutoAnnotation={props.installedAutoAnnotation}/>
-                { integratedModels.length ?
-                    <BuiltModelsList models={integratedModels}/> : null }
-                { uploadedModels.length &&
-                    <UploadedModelsList
-                        registeredUsers={props.registeredUsers}
-                        models={uploadedModels}
-                        deleteModel={props.deleteModel}
-                    />
-                } { props.installedAutoAnnotation &&
-                    !props.installedTFAnnotation &&
-                    !props.installedTFSegmentation &&
-                    <EmptyListComponent/>
-                }
-            </div>
+            <Spin size='large' className='cvat-spinner' />
         );
     }
+
+    const uploadedModels = models.filter((model): boolean => model.id !== null);
+    const integratedModels = models.filter((model): boolean => model.id === null);
+
+    return (
+        <div className='cvat-models-page'>
+            <TopBarComponent installedAutoAnnotation={installedAutoAnnotation} />
+            { !!integratedModels.length
+                && <BuiltModelsList models={integratedModels} />}
+            { !!uploadedModels.length && (
+                <UploadedModelsList
+                    registeredUsers={registeredUsers}
+                    models={uploadedModels}
+                    deleteModel={deleteModel}
+                />
+            )}
+            { installedAutoAnnotation
+                && !uploadedModels.length
+                && !installedTFAnnotation
+                && !installedTFSegmentation
+                && <EmptyListComponent />}
+            <FeedbackComponent />
+        </div>
+    );
 }

@@ -1,39 +1,31 @@
-import React from 'react';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import { connect } from 'react-redux';
-import { loginAsync } from '../../actions/auth-actions';
-import { CombinedState } from '../../reducers/interfaces';
-import LoginPageComponent from '../../components/login-page/login-page';
+import LoginPageComponent from 'components/login-page/login-page';
+import { CombinedState } from 'reducers/interfaces';
+import { loginAsync } from 'actions/auth-actions';
 
 interface StateToProps {
-    loginError: any;
+    fetching: boolean;
 }
 
 interface DispatchToProps {
-    login(username: string, password: string): void;
+    onLogin: typeof loginAsync;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
     return {
-        loginError: state.auth.loginError,
+        fetching: state.auth.fetching,
     };
 }
 
-function mapDispatchToProps(dispatch: any): DispatchToProps {
-    return {
-        login: (...args) => dispatch(loginAsync(...args)),
-    };
-}
-
-function LoginPageContainer(props: StateToProps & DispatchToProps) {
-    return (
-        <LoginPageComponent
-            onLogin={props.login}
-            loginError={props.loginError ? props.loginError.toString() : ''}
-        />
-    );
-}
+const mapDispatchToProps: DispatchToProps = {
+    onLogin: loginAsync,
+};
 
 export default connect(
     mapStateToProps,
     mapDispatchToProps,
-)(LoginPageContainer);
+)(LoginPageComponent);

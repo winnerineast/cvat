@@ -1,9 +1,21 @@
-import { AnyAction, Dispatch, ActionCreator } from 'redux';
-import { ThunkAction } from 'redux-thunk';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import getCore from '../core';
-import { getCVATStore } from '../store';
-import { Model, ModelFiles, CombinedState } from '../reducers/interfaces';
+import { ActionUnion, createAction, ThunkAction } from 'utils/redux';
+import {
+    Model,
+    ModelType,
+    ModelFiles,
+    ActiveInference,
+    CombinedState,
+} from 'reducers/interfaces';
+import getCore from 'cvat-core-wrapper';
+
+export enum PreinstalledModels {
+    RCNN = 'RCNN Object Detector',
+    MaskRCNN = 'Mask RCNN Object Detector',
+}
 
 export enum ModelsActionTypes {
     GET_MODELS = 'GET_MODELS',
@@ -16,65 +28,101 @@ export enum ModelsActionTypes {
     CREATE_MODEL_SUCCESS = 'CREATE_MODEL_SUCCESS',
     CREATE_MODEL_FAILED = 'CREATE_MODEL_FAILED',
     CREATE_MODEL_STATUS_UPDATED = 'CREATE_MODEL_STATUS_UPDATED',
-    INFER_MODEL = 'INFER_MODEL',
-    INFER_MODEL_SUCCESS = 'INFER_MODEL_SUCCESS',
-    INFER_MODEL_FAILED = 'INFER_MODEL_FAILED',
-    GET_INFERENCE_STATUS = 'GET_INFERENCE_STATUS',
+    START_INFERENCE_FAILED = 'START_INFERENCE_FAILED',
     GET_INFERENCE_STATUS_SUCCESS = 'GET_INFERENCE_STATUS_SUCCESS',
     GET_INFERENCE_STATUS_FAILED = 'GET_INFERENCE_STATUS_FAILED',
+    FETCH_META_FAILED = 'FETCH_META_FAILED',
     SHOW_RUN_MODEL_DIALOG = 'SHOW_RUN_MODEL_DIALOG',
     CLOSE_RUN_MODEL_DIALOG = 'CLOSE_RUN_MODEL_DIALOG',
+    CANCEL_INFERENCE_SUCCESS = 'CANCEL_INFERENCE_SUCCESS',
+    CANCEL_INFERENCE_FAILED = 'CANCEL_INFERENCE_FAILED',
 }
 
-export enum PreinstalledModels {
-    RCNN = 'RCNN Object Detector',
-    MaskRCNN = 'Mask RCNN Object Detector',
-}
+export const modelsActions = {
+    getModels: () => createAction(ModelsActionTypes.GET_MODELS),
+    getModelsSuccess: (models: Model[]) => createAction(
+        ModelsActionTypes.GET_MODELS_SUCCESS, {
+            models,
+        },
+    ),
+    getModelsFailed: (error: any) => createAction(
+        ModelsActionTypes.GET_MODELS_FAILED, {
+            error,
+        },
+    ),
+    deleteModelSuccess: (id: number) => createAction(
+        ModelsActionTypes.DELETE_MODEL_SUCCESS, {
+            id,
+        },
+    ),
+    deleteModelFailed: (id: number, error: any) => createAction(
+        ModelsActionTypes.DELETE_MODEL_FAILED, {
+            error, id,
+        },
+    ),
+    createModel: () => createAction(ModelsActionTypes.CREATE_MODEL),
+    createModelSuccess: () => createAction(ModelsActionTypes.CREATE_MODEL_SUCCESS),
+    createModelFailed: (error: any) => createAction(
+        ModelsActionTypes.CREATE_MODEL_FAILED, {
+            error,
+        },
+    ),
+    createModelUpdateStatus: (status: string) => createAction(
+        ModelsActionTypes.CREATE_MODEL_STATUS_UPDATED, {
+            status,
+        },
+    ),
+    fetchMetaFailed: (error: any) => createAction(ModelsActionTypes.FETCH_META_FAILED, { error }),
+    getInferenceStatusSuccess: (taskID: number, activeInference: ActiveInference) => createAction(
+        ModelsActionTypes.GET_INFERENCE_STATUS_SUCCESS, {
+            taskID,
+            activeInference,
+        },
+    ),
+    getInferenceStatusFailed: (taskID: number, error: any) => createAction(
+        ModelsActionTypes.GET_INFERENCE_STATUS_FAILED, {
+            taskID,
+            error,
+        },
+    ),
+    startInferenceFailed: (taskID: number, error: any) => createAction(
+        ModelsActionTypes.START_INFERENCE_FAILED, {
+            taskID,
+            error,
+        },
+    ),
+    cancelInferenceSuccess: (taskID: number) => createAction(
+        ModelsActionTypes.CANCEL_INFERENCE_SUCCESS, {
+            taskID,
+        },
+    ),
+    cancelInferenceFaild: (taskID: number, error: any) => createAction(
+        ModelsActionTypes.CANCEL_INFERENCE_FAILED, {
+            taskID,
+            error,
+        },
+    ),
+    closeRunModelDialog: () => createAction(ModelsActionTypes.CLOSE_RUN_MODEL_DIALOG),
+    showRunModelDialog: (taskInstance: any) => createAction(
+        ModelsActionTypes.SHOW_RUN_MODEL_DIALOG, {
+            taskInstance,
+        },
+    ),
+};
+
+export type ModelsActions = ActionUnion<typeof modelsActions>;
 
 const core = getCore();
 const baseURL = core.config.backendAPI.slice(0, -7);
 
-function getModels(): AnyAction {
-    const action = {
-        type: ModelsActionTypes.GET_MODELS,
-        payload: {},
-    };
+export function getModelsAsync(): ThunkAction {
+    return async (dispatch, getState): Promise<void> => {
+        const state: CombinedState = getState();
+        const OpenVINO = state.plugins.list.AUTO_ANNOTATION;
+        const RCNN = state.plugins.list.TF_ANNOTATION;
+        const MaskRCNN = state.plugins.list.TF_SEGMENTATION;
 
-    return action;
-}
-
-function getModelsSuccess(models: Model[]): AnyAction {
-    const action = {
-        type: ModelsActionTypes.GET_MODELS_SUCCESS,
-        payload: {
-            models,
-        },
-    };
-
-    return action;
-}
-
-function getModelsFailed(error: any): AnyAction {
-    const action = {
-        type: ModelsActionTypes.GET_MODELS_FAILED,
-        payload: {
-            error,
-        },
-    };
-
-    return action;
-}
-
-export function getModelsAsync():
-ThunkAction<Promise<void>, {}, {}, AnyAction> {
-    return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
-        const store = getCVATStore();
-        const state: CombinedState = store.getState();
-        const OpenVINO = state.plugins.plugins.AUTO_ANNOTATION;
-        const RCNN = state.plugins.plugins.TF_ANNOTATION;
-        const MaskRCNN = state.plugins.plugins.TF_SEGMENTATION;
-
-        dispatch(getModels());
+        dispatch(modelsActions.getModels());
         const models: Model[] = [];
 
         try {
@@ -160,108 +208,31 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
                 });
             }
         } catch (error) {
-            dispatch(getModelsFailed(error));
+            dispatch(modelsActions.getModelsFailed(error));
             return;
         }
 
-        dispatch(getModelsSuccess(models));
+        dispatch(modelsActions.getModelsSuccess(models));
     };
 }
 
-function deleteModel(id: number): AnyAction {
-    const action = {
-        type: ModelsActionTypes.DELETE_MODEL,
-        payload: {
-            id,
-        },
-    };
-
-    return action;
-}
-
-function deleteModelSuccess(id: number): AnyAction {
-    const action = {
-        type: ModelsActionTypes.DELETE_MODEL_SUCCESS,
-        payload: {
-            id,
-        },
-    };
-
-    return action;
-}
-
-function deleteModelFailed(id: number, error: any): AnyAction {
-    const action = {
-        type: ModelsActionTypes.DELETE_MODEL_FAILED,
-        payload: {
-            error,
-            id,
-        },
-    };
-
-    return action;
-}
-
-export function deleteModelAsync(id: number): ThunkAction<Promise<void>, {}, {}, AnyAction> {
-    return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
-        dispatch(deleteModel(id));
+export function deleteModelAsync(id: number): ThunkAction {
+    return async (dispatch): Promise<void> => {
         try {
             await core.server.request(`${baseURL}/auto_annotation/delete/${id}`, {
                 method: 'DELETE',
             });
         } catch (error) {
-            dispatch(deleteModelFailed(id, error));
+            dispatch(modelsActions.deleteModelFailed(id, error));
             return;
         }
 
-        dispatch(deleteModelSuccess(id));
+        dispatch(modelsActions.deleteModelSuccess(id));
     };
 }
 
-
-function createModel(): AnyAction {
-    const action = {
-        type: ModelsActionTypes.CREATE_MODEL,
-        payload: {},
-    };
-
-    return action;
-}
-
-function createModelSuccess(): AnyAction {
-    const action = {
-        type: ModelsActionTypes.CREATE_MODEL_SUCCESS,
-        payload: {},
-    };
-
-    return action;
-}
-
-function createModelFailed(error: any): AnyAction {
-    const action = {
-        type: ModelsActionTypes.CREATE_MODEL_FAILED,
-        payload: {
-            error,
-        },
-    };
-
-    return action;
-}
-
-function createModelUpdateStatus(status: string): AnyAction {
-    const action = {
-        type: ModelsActionTypes.CREATE_MODEL_STATUS_UPDATED,
-        payload: {
-            status,
-        },
-    };
-
-    return action;
-}
-
-export function createModelAsync(name: string, files: ModelFiles, global: boolean):
-ThunkAction<Promise<void>, {}, {}, AnyAction> {
-    return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
+export function createModelAsync(name: string, files: ModelFiles, global: boolean): ThunkAction {
+    return async (dispatch): Promise<void> => {
         async function checkCallback(id: string): Promise<void> {
             try {
                 const data = await core.server.request(
@@ -272,30 +243,30 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
 
                 switch (data.status) {
                     case 'failed':
-                        dispatch(createModelFailed(
+                        dispatch(modelsActions.createModelFailed(
                             `Checking request has returned the "${data.status}" status. Message: ${data.error}`,
                         ));
                         break;
                     case 'unknown':
-                        dispatch(createModelFailed(
+                        dispatch(modelsActions.createModelFailed(
                             `Checking request has returned the "${data.status}" status.`,
                         ));
                         break;
                     case 'finished':
-                        dispatch(createModelSuccess());
+                        dispatch(modelsActions.createModelSuccess());
                         break;
                     default:
                         if ('progress' in data) {
-                            createModelUpdateStatus(data.progress);
+                            modelsActions.createModelUpdateStatus(data.progress);
                         }
                         setTimeout(checkCallback.bind(null, id), 1000);
                 }
             } catch (error) {
-                dispatch(createModelFailed(error));
+                dispatch(modelsActions.createModelFailed(error));
             }
         }
 
-        dispatch(createModel());
+        dispatch(modelsActions.createModel());
         const data = new FormData();
         data.append('name', name);
         data.append('storage', typeof files.bin === 'string' ? 'shared' : 'local');
@@ -306,7 +277,7 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
         }, data);
 
         try {
-            dispatch(createModelUpdateStatus('Request is beign sent..'));
+            dispatch(modelsActions.createModelUpdateStatus('Request is beign sent..'));
             const response = await core.server.request(
                 `${baseURL}/auto_annotation/create`, {
                     method: 'POST',
@@ -316,54 +287,202 @@ ThunkAction<Promise<void>, {}, {}, AnyAction> {
                 },
             );
 
-            dispatch(createModelUpdateStatus('Request is being processed..'));
+            dispatch(modelsActions.createModelUpdateStatus('Request is being processed..'));
             setTimeout(checkCallback.bind(null, response.id), 1000);
         } catch (error) {
-            dispatch(createModelFailed(error));
+            dispatch(modelsActions.createModelFailed(error));
         }
     };
 }
 
-function inferModel(): AnyAction {
-    const action = {
-        type: ModelsActionTypes.INFER_MODEL,
-        payload: {},
-    };
-
-    return action;
+interface InferenceMeta {
+    active: boolean;
+    taskID: number;
+    requestID: string;
+    modelType: ModelType;
 }
 
-function inferModelSuccess(): AnyAction {
-    const action = {
-        type: ModelsActionTypes.INFER_MODEL_SUCCESS,
-        payload: {},
-    };
+const timers: any = {};
 
-    return action;
+async function timeoutCallback(
+    url: string,
+    taskID: number,
+    modelType: ModelType,
+    dispatch: (action: ModelsActions) => void,
+): Promise<void> {
+    try {
+        delete timers[taskID];
+
+        const response = await core.server.request(url, {
+            method: 'GET',
+        });
+
+        const activeInference: ActiveInference = {
+            status: response.status,
+            progress: +response.progress || 0,
+            error: response.error || response.stderr || '',
+            modelType,
+        };
+
+
+        if (activeInference.status === 'unknown') {
+            dispatch(modelsActions.getInferenceStatusFailed(
+                taskID,
+                new Error(
+                    `Inference status for the task ${taskID} is unknown.`,
+                ),
+            ));
+
+            return;
+        }
+
+        if (activeInference.status === 'failed') {
+            dispatch(modelsActions.getInferenceStatusFailed(
+                taskID,
+                new Error(
+                    `Inference status for the task ${taskID} is failed. ${activeInference.error}`,
+                ),
+            ));
+
+            return;
+        }
+
+        if (activeInference.status !== 'finished') {
+            timers[taskID] = setTimeout(
+                timeoutCallback.bind(
+                    null,
+                    url,
+                    taskID,
+                    modelType,
+                    dispatch,
+                ), 3000,
+            );
+        }
+
+        dispatch(modelsActions.getInferenceStatusSuccess(taskID, activeInference));
+    } catch (error) {
+        dispatch(modelsActions.getInferenceStatusFailed(taskID, new Error(
+            `Server request for the task ${taskID} was failed`,
+        )));
+    }
 }
 
-function inferModelFailed(error: any): AnyAction {
-    const action = {
-        type: ModelsActionTypes.INFER_MODEL_FAILED,
-        payload: {
-            error,
-        },
-    };
-
-    return action;
+function subscribe(
+    inferenceMeta: InferenceMeta,
+    dispatch: (action: ModelsActions) => void,
+): void {
+    if (!(inferenceMeta.taskID in timers)) {
+        let requestURL = `${baseURL}`;
+        if (inferenceMeta.modelType === ModelType.OPENVINO) {
+            requestURL = `${requestURL}/auto_annotation/check`;
+        } else if (inferenceMeta.modelType === ModelType.RCNN) {
+            requestURL = `${requestURL}/tensorflow/annotation/check/task`;
+        } else if (inferenceMeta.modelType === ModelType.MASK_RCNN) {
+            requestURL = `${requestURL}/tensorflow/segmentation/check/task`;
+        }
+        requestURL = `${requestURL}/${inferenceMeta.requestID}`;
+        timers[inferenceMeta.taskID] = setTimeout(
+            timeoutCallback.bind(
+                null,
+                requestURL,
+                inferenceMeta.taskID,
+                inferenceMeta.modelType,
+                dispatch,
+            ),
+        );
+    }
 }
 
-export function inferModelAsync(
+export function getInferenceStatusAsync(tasks: number[]): ThunkAction {
+    return async (dispatch, getState): Promise<void> => {
+        function parse(response: any, modelType: ModelType): InferenceMeta[] {
+            return Object.keys(response).map((key: string): InferenceMeta => ({
+                taskID: +key,
+                requestID: response[key].rq_id || key,
+                active: typeof (response[key].active) === 'undefined' ? ['queued', 'started']
+                    .includes(response[key].status.toLowerCase()) : response[key].active,
+                modelType,
+            }));
+        }
+
+        const state: CombinedState = getState();
+        const OpenVINO = state.plugins.list.AUTO_ANNOTATION;
+        const RCNN = state.plugins.list.TF_ANNOTATION;
+        const MaskRCNN = state.plugins.list.TF_SEGMENTATION;
+
+        const dispatchCallback = (action: ModelsActions): void => {
+            dispatch(action);
+        };
+
+        try {
+            if (OpenVINO) {
+                const response = await core.server.request(
+                    `${baseURL}/auto_annotation/meta/get`, {
+                        method: 'POST',
+                        data: JSON.stringify(tasks),
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    },
+                );
+
+                parse(response.run, ModelType.OPENVINO)
+                    .filter((inferenceMeta: InferenceMeta): boolean => inferenceMeta.active)
+                    .forEach((inferenceMeta: InferenceMeta): void => {
+                        subscribe(inferenceMeta, dispatchCallback);
+                    });
+            }
+
+            if (RCNN) {
+                const response = await core.server.request(
+                    `${baseURL}/tensorflow/annotation/meta/get`, {
+                        method: 'POST',
+                        data: JSON.stringify(tasks),
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    },
+                );
+
+                parse(response, ModelType.RCNN)
+                    .filter((inferenceMeta: InferenceMeta): boolean => inferenceMeta.active)
+                    .forEach((inferenceMeta: InferenceMeta): void => {
+                        subscribe(inferenceMeta, dispatchCallback);
+                    });
+            }
+
+            if (MaskRCNN) {
+                const response = await core.server.request(
+                    `${baseURL}/tensorflow/segmentation/meta/get`, {
+                        method: 'POST',
+                        data: JSON.stringify(tasks),
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    },
+                );
+
+                parse(response, ModelType.MASK_RCNN)
+                    .filter((inferenceMeta: InferenceMeta): boolean => inferenceMeta.active)
+                    .forEach((inferenceMeta: InferenceMeta): void => {
+                        subscribe(inferenceMeta, dispatchCallback);
+                    });
+            }
+        } catch (error) {
+            dispatch(modelsActions.fetchMetaFailed(error));
+        }
+    };
+}
+
+export function startInferenceAsync(
     taskInstance: any,
     model: Model,
     mapping: {
         [index: string]: string;
     },
     cleanOut: boolean,
-): ThunkAction<Promise<void>, {}, {}, AnyAction> {
-    return async (dispatch: ActionCreator<Dispatch>): Promise<void> => {
-        dispatch(inferModel());
-
+): ThunkAction {
+    return async (dispatch): Promise<void> => {
         try {
             if (model.name === PreinstalledModels.RCNN) {
                 await core.server.request(
@@ -387,31 +506,42 @@ export function inferModelAsync(
                     },
                 );
             }
+
+            dispatch(getInferenceStatusAsync([taskInstance.id]));
         } catch (error) {
-            dispatch(inferModelFailed(error));
-            return;
+            dispatch(modelsActions.startInferenceFailed(taskInstance.id, error));
         }
-
-        dispatch(inferModelSuccess());
     };
 }
 
-export function closeRunModelDialog(): AnyAction {
-    const action = {
-        type: ModelsActionTypes.CLOSE_RUN_MODEL_DIALOG,
-        payload: {},
+export function cancelInferenceAsync(taskID: number): ThunkAction {
+    return async (dispatch, getState): Promise<void> => {
+        try {
+            const inference = getState().models.inferences[taskID];
+            if (inference) {
+                if (inference.modelType === ModelType.OPENVINO) {
+                    await core.server.request(
+                        `${baseURL}/auto_annotation/cancel/${taskID}`,
+                    );
+                } else if (inference.modelType === ModelType.RCNN) {
+                    await core.server.request(
+                        `${baseURL}/tensorflow/annotation/cancel/task/${taskID}`,
+                    );
+                } else if (inference.modelType === ModelType.MASK_RCNN) {
+                    await core.server.request(
+                        `${baseURL}/tensorflow/segmentation/cancel/task/${taskID}`,
+                    );
+                }
+
+                if (timers[taskID]) {
+                    clearTimeout(timers[taskID]);
+                    delete timers[taskID];
+                }
+            }
+
+            dispatch(modelsActions.cancelInferenceSuccess(taskID));
+        } catch (error) {
+            dispatch(modelsActions.cancelInferenceFaild(taskID, error));
+        }
     };
-
-    return action;
-}
-
-export function showRunModelDialog(taskInstance: any): AnyAction {
-    const action = {
-        type: ModelsActionTypes.SHOW_RUN_MODEL_DIALOG,
-        payload: {
-            taskInstance,
-        },
-    };
-
-    return action;
 }

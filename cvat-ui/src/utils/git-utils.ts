@@ -1,4 +1,8 @@
-import getCore from '../core';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
+import getCore from 'cvat-core-wrapper';
 
 const core = getCore();
 const baseURL = core.config.backendAPI.slice(0, -7);
@@ -11,7 +15,7 @@ interface GitPlugin {
             Task: {
                 prototype: {
                     save: {
-                        leave: (plugin: GitPlugin, task: any) => void;
+                        leave: (plugin: GitPlugin, task: any) => Promise<any>;
                     };
                 };
             };
@@ -73,12 +77,12 @@ async function cloneRepository(
     this: any,
     plugin: GitPlugin,
     createdTask: any,
-): Promise<void> {
-    return new Promise((resolve, reject): void => {
+): Promise<any> {
+    return new Promise((resolve, reject): any => {
         if (typeof (this.id) !== 'undefined' || plugin.data.task !== this) {
             // not the first save, we do not need to clone the repository
             // or anchor set for another task
-            resolve();
+            resolve(createdTask);
         } else if (plugin.data.repos) {
             if (plugin.callbacks.onStatusChange) {
                 plugin.callbacks.onStatusChange('The repository is being cloned..');
@@ -95,7 +99,7 @@ async function cloneRepository(
                     tid: createdTask.id,
                 }),
             }).then(waitForClone).then((): void => {
-                resolve();
+                resolve(createdTask);
             }).catch((error: any): void => {
                 createdTask.delete().finally((): void => {
                     reject(
@@ -176,10 +180,10 @@ export function syncRepos(tid: number): Promise<void> {
                     resolve();
                 } else if (response.status === 'failed') {
                     const message = `Can not push to remote repository. Message: ${response.stderr}`;
-                    throw new Error(message);
+                    reject(new Error(message));
                 } else {
                     const message = `Check returned status "${response.status}".`;
-                    throw new Error(message);
+                    reject(new Error(message));
                 }
             }
 

@@ -1,22 +1,26 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
 import { connect } from 'react-redux';
 
-import ModelsPageComponent from '../../components/models-page/models-page';
+import ModelsPageComponent from 'components/models-page/models-page';
 import {
     Model,
     CombinedState,
-} from '../../reducers/interfaces';
+} from 'reducers/interfaces';
 import {
     getModelsAsync,
     deleteModelAsync,
-} from '../../actions/models-actions';
+} from 'actions/models-actions';
 
 interface StateToProps {
     installedAutoAnnotation: boolean;
     installedTFAnnotation: boolean;
     installedTFSegmentation: boolean;
-    modelsAreBeingFetched: boolean;
-    modelsFetchingError: any;
+    modelsInitialized: boolean;
+    modelsFetching: boolean;
     models: Model[];
     registeredUsers: any[];
 }
@@ -27,15 +31,15 @@ interface DispatchToProps {
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
-    const { plugins } = state.plugins;
+    const { list } = state.plugins;
     const { models } = state;
 
     return {
-        installedAutoAnnotation: plugins.AUTO_ANNOTATION,
-        installedTFAnnotation: plugins.TF_ANNOTATION,
-        installedTFSegmentation: plugins.TF_SEGMENTATION,
-        modelsAreBeingFetched: !models.initialized,
-        modelsFetchingError: models.fetchingError,
+        installedAutoAnnotation: list.AUTO_ANNOTATION,
+        installedTFAnnotation: list.TF_ANNOTATION,
+        installedTFSegmentation: list.TF_SEGMENTATION,
+        modelsInitialized: models.initialized,
+        modelsFetching: models.fetching,
         models: models.models,
         registeredUsers: state.users.users,
     };
@@ -43,33 +47,28 @@ function mapStateToProps(state: CombinedState): StateToProps {
 
 function mapDispatchToProps(dispatch: any): DispatchToProps {
     return {
-        getModels() {
+        getModels(): void {
             dispatch(getModelsAsync());
         },
-        deleteModel(id: number) {
+        deleteModel(id: number): void {
             dispatch(deleteModelAsync(id));
         },
     };
 }
 
-function ModelsPageContainer(props: DispatchToProps & StateToProps) {
-    const render = props.installedAutoAnnotation
-        || props.installedTFAnnotation
-        || props.installedTFSegmentation;
+function ModelsPageContainer(props: DispatchToProps & StateToProps): JSX.Element | null {
+    const {
+        installedAutoAnnotation,
+        installedTFSegmentation,
+        installedTFAnnotation,
+    } = props;
+
+    const render = installedAutoAnnotation
+        || installedTFAnnotation
+        || installedTFSegmentation;
 
     return (
-        render ?
-            <ModelsPageComponent
-                installedAutoAnnotation={props.installedAutoAnnotation}
-                installedTFSegmentation={props.installedTFSegmentation}
-                installedTFAnnotation={props.installedTFAnnotation}
-                modelsAreBeingFetched={props.modelsAreBeingFetched}
-                modelsFetchingError={props.modelsFetchingError}
-                registeredUsers={props.registeredUsers}
-                models={props.models}
-                getModels={props.getModels}
-                deleteModel={props.deleteModel}
-            /> : null
+        render ? <ModelsPageComponent {...props} /> : null
     );
 }
 

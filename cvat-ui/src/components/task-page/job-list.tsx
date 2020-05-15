@@ -1,18 +1,21 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
-
-import {
-    Row,
-    Col,
-    Table,
-} from 'antd';
-
+import { RouteComponentProps } from 'react-router';
+import { withRouter } from 'react-router-dom';
+import { Row, Col } from 'antd/lib/grid';
+import Icon from 'antd/lib/icon';
+import Table from 'antd/lib/table';
+import Button from 'antd/lib/button';
+import Tooltip from 'antd/lib/tooltip';
 import Text from 'antd/lib/typography/Text';
-import Title from 'antd/lib/typography/Title';
-
 import moment from 'moment';
+import copy from 'copy-to-clipboard';
 
+import getCore from 'cvat-core-wrapper';
 import UserSelector from './user-selector';
-import getCore from '../../core';
 
 const core = getCore();
 
@@ -24,64 +27,97 @@ interface Props {
     onJobUpdate(jobInstance: any): void;
 }
 
-export default function JobListComponent(props: Props) {
-    const { jobs } = props.taskInstance;
+function JobListComponent(props: Props & RouteComponentProps): JSX.Element {
+    const {
+        taskInstance,
+        registeredUsers,
+        onJobUpdate,
+        history: {
+            push,
+        },
+    } = props;
+
+    const { jobs, id: taskId } = taskInstance;
     const columns = [{
         title: 'Job',
         dataIndex: 'job',
         key: 'job',
-        render: (id: number) => {
-            return (
-                <a href={`${baseURL}/?id=${id}`}>{ `Job #${id++}` }</a>
-            );
-        }
+        render: (id: number): JSX.Element => (
+            <div>
+                <Button
+                    type='link'
+                    onClick={(e: React.MouseEvent): void => {
+                        e.preventDefault();
+                        push(`/tasks/${taskId}/jobs/${id}`);
+                    }}
+                    href={`/tasks/${taskId}/jobs/${id}`}
+                >
+                    {`Job #${id}`}
+                </Button>
+                |
+                <Tooltip title='Old version of UI is deprecated and will be removed from
+                                new versions of UI. We still recomend it only if you use
+                                specific features from it like cuboids annotation.'
+                >
+                    <Button type='link' href={`${baseURL}/?id=${id}`}>Old UI</Button>
+                </Tooltip>
+            </div>
+        ),
     }, {
         title: 'Frames',
         dataIndex: 'frames',
         key: 'frames',
-        className: 'cvat-black-color',
+        className: 'cvat-text-color',
     }, {
         title: 'Status',
         dataIndex: 'status',
         key: 'status',
-        render: (status: string) => {
-            const progressColor = status === 'completed' ? 'cvat-job-completed-color':
-                status === 'validation' ? 'cvat-job-validation-color' : 'cvat-job-annotation-color';
+        render: (status: string): JSX.Element => {
+            let progressColor = null;
+            if (status === 'completed') {
+                progressColor = 'cvat-job-completed-color';
+            } else if (status === 'validation') {
+                progressColor = 'cvat-job-validation-color';
+            } else {
+                progressColor = 'cvat-job-annotation-color';
+            }
 
             return (
                 <Text strong className={progressColor}>{ status }</Text>
             );
-        }
+        },
     }, {
         title: 'Started on',
         dataIndex: 'started',
         key: 'started',
-        className: 'cvat-black-color',
+        className: 'cvat-text-color',
     }, {
         title: 'Duration',
         dataIndex: 'duration',
         key: 'duration',
-        className: 'cvat-black-color',
+        className: 'cvat-text-color',
     }, {
         title: 'Assignee',
         dataIndex: 'assignee',
         key: 'assignee',
-        render: (jobInstance: any) => {
-            const assignee = jobInstance.assignee ? jobInstance.assignee.username : null
+        render: (jobInstance: any): JSX.Element => {
+            const assignee = jobInstance.assignee ? jobInstance.assignee.username : null;
+
             return (
                 <UserSelector
-                    users={props.registeredUsers}
+                    users={registeredUsers}
                     value={assignee}
-                    onChange={(value: string) => {
-                        let [userInstance] = props.registeredUsers
-                                .filter((user: any) => user.username === value);
+                    onChange={(value: string): void => {
+                        let [userInstance] = [...registeredUsers]
+                            .filter((user: any) => user.username === value);
 
                         if (userInstance === undefined) {
                             userInstance = null;
                         }
 
+                        // eslint-disable-next-line
                         jobInstance.assignee = userInstance;
-                        props.onJobUpdate(jobInstance);
+                        onJobUpdate(jobInstance);
                     }}
                 />
             );
@@ -113,10 +149,35 @@ export default function JobListComponent(props: Props) {
         <div className='cvat-task-job-list'>
             <Row type='flex' justify='space-between' align='middle'>
                 <Col>
-                    <Title level={4} className='cvat-black-color cvat-jobs-header'> Jobs </Title>
+                    <Text className='cvat-text-color cvat-jobs-header'> Jobs </Text>
+                    <Tooltip trigger='click' title='Copied to clipboard!'>
+                        <Button
+                            type='link'
+                            onClick={(): void => {
+                                let serialized = '';
+                                const [latestJob] = [...taskInstance.jobs].reverse();
+                                for (const job of taskInstance.jobs) {
+                                    serialized += `Job #${job.id}`.padEnd(`${latestJob.id}`.length + 6, ' ');
+                                    serialized += `: ${baseURL}/?id=${job.id}`
+                                        .padEnd(`${latestJob.id}`.length + baseURL.length + 8, ' ');
+                                    serialized += `: [${job.startFrame}-${job.stopFrame}]`
+                                        .padEnd(`${latestJob.startFrame}${latestJob.stopFrame}`.length + 5, ' ');
+
+                                    if (job.assignee) {
+                                        serialized += `\t assigned to: ${job.assignee.username}`;
+                                    }
+                                    serialized += '\n';
+                                }
+                                copy(serialized);
+                            }}
+                        >
+                            <Icon type='copy' theme='twoTone' />
+                            Copy
+                        </Button>
+                    </Tooltip>
                 </Col>
                 <Col>
-                    <Text className='cvat-black-color'>
+                    <Text className='cvat-text-color'>
                         {`${completed} of ${data.length} jobs`}
                     </Text>
                 </Col>
@@ -130,3 +191,5 @@ export default function JobListComponent(props: Props) {
         </div>
     );
 }
+
+export default withRouter(JobListComponent);

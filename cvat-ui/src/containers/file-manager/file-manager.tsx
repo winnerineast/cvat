@@ -1,16 +1,21 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
 import { connect } from 'react-redux';
 
-import { TreeNodeNormal } from 'antd/lib/tree/Tree'
-import FileManagerComponent, { Files } from '../../components/file-manager/file-manager';
+import { TreeNodeNormal } from 'antd/lib/tree/Tree';
+import FileManagerComponent, { Files } from 'components/file-manager/file-manager';
 
-import { loadShareDataAsync } from '../../actions/share-actions';
+import { loadShareDataAsync } from 'actions/share-actions';
 import {
     ShareItem,
     CombinedState,
-} from '../../reducers/interfaces';
+} from 'reducers/interfaces';
 
 interface OwnProps {
+    ref: any;
     withRemote: boolean;
 }
 
@@ -25,11 +30,12 @@ interface DispatchToProps {
 function mapStateToProps(state: CombinedState): StateToProps {
     function convert(items: ShareItem[], path?: string): TreeNodeNormal[] {
         return items.map((item): TreeNodeNormal => {
-            const key = `${path}/${item.name}`.replace(/\/+/g, '/'); // // => /
+            const isLeaf = item.type !== 'DIR';
+            const key = `${path}${item.name}${isLeaf ? '' : '/'}`;
             return {
                 key,
-                title: item.name,
-                isLeaf: item.type !== 'DIR',
+                isLeaf,
+                title: item.name || 'root',
                 children: convert(item.children, key),
             };
         });
@@ -37,15 +43,15 @@ function mapStateToProps(state: CombinedState): StateToProps {
 
     const { root } = state.share;
     return {
-        treeData: convert(root.children, root.name),
+        treeData: convert([root], ''),
     };
 }
 
 function mapDispatchToProps(dispatch: any): DispatchToProps {
     return {
-        getTreeData: (key: string, success: () => void, failure: () => void) => {
+        getTreeData: (key: string, success: () => void, failure: () => void): void => {
             dispatch(loadShareDataAsync(key, success, failure));
-        }
+        },
     };
 }
 
@@ -62,13 +68,21 @@ export class FileManagerContainer extends React.PureComponent<Props> {
         return this.managerComponentRef.reset();
     }
 
-    public render() {
+    public render(): JSX.Element {
+        const {
+            treeData,
+            getTreeData,
+            withRemote,
+        } = this.props;
+
         return (
             <FileManagerComponent
-                treeData={this.props.treeData}
-                onLoadData={this.props.getTreeData}
-                withRemote={this.props.withRemote}
-                ref={(component) => this.managerComponentRef = component}
+                treeData={treeData}
+                onLoadData={getTreeData}
+                withRemote={withRemote}
+                ref={(component): void => {
+                    this.managerComponentRef = component;
+                }}
             />
         );
     }

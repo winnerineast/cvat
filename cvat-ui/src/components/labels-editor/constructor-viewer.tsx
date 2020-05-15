@@ -1,9 +1,10 @@
-import React from 'react';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import {
-    Icon,
-    Button,
-} from 'antd';
+import React from 'react';
+import Icon from 'antd/lib/icon';
+import Button from 'antd/lib/button';
 
 import ConstructorViewerItem from './constructor-viewer-item';
 import { Label } from './common';
@@ -23,7 +24,7 @@ const colors = [
 
 let currentColor = 0;
 
-function nextColor() {
+function nextColor(): string {
     const color = colors[currentColor];
     currentColor += 1;
     if (currentColor >= colors.length) {
@@ -32,12 +33,14 @@ function nextColor() {
     return color;
 }
 
-export default function ConstructorViewer(props: ConstructorViewerProps) {
+export default function ConstructorViewer(props: ConstructorViewerProps): JSX.Element {
+    const { onCreate } = props;
     currentColor = 0;
 
     const list = [
-        <Button key='create' type='ghost' onClick={props.onCreate} className='cvat-constructor-viewer-new-item'>
-            Add label <Icon type='plus-circle'/>
+        <Button key='create' type='ghost' onClick={onCreate} className='cvat-constructor-viewer-new-item'>
+            Add label
+            <Icon type='plus-circle' />
         </Button>];
     for (const label of props.labels) {
         list.push(
@@ -47,8 +50,8 @@ export default function ConstructorViewer(props: ConstructorViewerProps) {
                 label={label}
                 key={label.id}
                 color={nextColor()}
-            />
-        )
+            />,
+        );
     }
 
     return (

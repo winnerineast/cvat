@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2019 Intel Corporation
+* Copyright (C) 2019-2020 Intel Corporation
 * SPDX-License-Identifier: MIT
 */
 
@@ -11,12 +11,13 @@
     const serverProxy = require('./server-proxy');
     const Collection = require('./annotations-collection');
     const AnnotationsSaver = require('./annotations-saver');
+    const AnnotationsHistory = require('./annotations-history');
     const { checkObjectType } = require('./common');
     const { Task } = require('./session');
     const {
         Loader,
         Dumper,
-    } = require('./annotation-format.js');
+    } = require('./annotation-formats.js');
     const {
         ScriptingError,
         DataError,
@@ -56,28 +57,36 @@
                 frameMeta[i] = await session.frames.get(i);
             }
 
+            const history = new AnnotationsHistory();
             const collection = new Collection({
                 labels: session.labels || session.task.labels,
+                history,
                 startFrame,
                 stopFrame,
                 frameMeta,
-            }).import(rawAnnotations);
+            });
+            collection.import(rawAnnotations);
 
             const saver = new AnnotationsSaver(rawAnnotations.version, collection, session);
 
             cache.set(session, {
                 collection,
                 saver,
-
+                history,
             });
         }
     }
 
-    async function getAnnotations(session, frame, filter) {
-        await getAnnotationsFromServer(session);
+    async function getAnnotations(session, frame, allTracks, filters) {
         const sessionType = session instanceof Task ? 'task' : 'job';
         const cache = getCache(sessionType);
-        return cache.get(session).collection.get(frame, filter);
+
+        if (cache.has(session)) {
+            return cache.get(session).collection.get(frame, allTracks, filters);
+        }
+
+        await getAnnotationsFromServer(session);
+        return cache.get(session).collection.get(frame, allTracks, filters);
     }
 
     async function saveAnnotations(session, onUpdate) {
@@ -89,6 +98,19 @@
         }
 
         // If a collection wasn't uploaded, than it wasn't changed, finally we shouldn't save it
+    }
+
+    function searchAnnotations(session, filters, frameFrom, frameTo) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).collection.search(filters, frameFrom, frameTo);
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
     }
 
     function mergeAnnotations(session, objectStates) {
@@ -225,6 +247,32 @@
         return result;
     }
 
+    function importAnnotations(session, data) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).collection.import(data);
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
+    }
+
+    function exportAnnotations(session) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).collection.export();
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
+    }
+
     async function exportDataset(session, format) {
         if (!(format instanceof String || typeof format === 'string')) {
             throw new ArgumentError(
@@ -244,12 +292,65 @@
         return result;
     }
 
+    function undoActions(session, count) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).history.undo(count);
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
+    }
+
+    function redoActions(session, count) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).history.redo(count);
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
+    }
+
+    function clearActions(session) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).history.clear();
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
+    }
+
+    function getActions(session) {
+        const sessionType = session instanceof Task ? 'task' : 'job';
+        const cache = getCache(sessionType);
+
+        if (cache.has(session)) {
+            return cache.get(session).history.get();
+        }
+
+        throw new DataError(
+            'Collection has not been initialized yet. Call annotations.get() or annotations.clear(true) before',
+        );
+    }
+
     module.exports = {
         getAnnotations,
         putAnnotations,
         saveAnnotations,
         hasUnsavedChanges,
         mergeAnnotations,
+        searchAnnotations,
         splitAnnotations,
         groupAnnotations,
         clearAnnotations,
@@ -257,6 +358,12 @@
         selectObject,
         uploadAnnotations,
         dumpAnnotations,
+        importAnnotations,
+        exportAnnotations,
         exportDataset,
+        undoActions,
+        redoActions,
+        clearActions,
+        getActions,
     };
 })();

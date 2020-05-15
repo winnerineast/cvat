@@ -1,47 +1,62 @@
-import React from 'react';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import {
-    Row,
-    Col,
-    Icon,
-    Alert,
-    Button,
-    Tooltip,
-    Modal,
-    message,
-} from 'antd';
+import React from 'react';
+import { Row, Col } from 'antd/lib/grid';
+import Icon from 'antd/lib/icon';
+import Alert from 'antd/lib/alert';
+import Button from 'antd/lib/button';
+import Tooltip from 'antd/lib/tooltip';
+import message from 'antd/lib/message';
+import notification from 'antd/lib/notification';
+import Text from 'antd/lib/typography/Text';
+
+import consts from 'consts';
+import ConnectedFileManager, {
+    FileManagerContainer,
+} from 'containers/file-manager/file-manager';
+import { ModelFiles } from 'reducers/interfaces';
 
 import CreateModelForm, {
-    CreateModelForm as WrappedCreateModelForm
+    CreateModelForm as WrappedCreateModelForm,
 } from './create-model-form';
-import ConnectedFileManager, {
-    FileManagerContainer
-} from '../../containers/file-manager/file-manager';
-import { ModelFiles } from '../../reducers/interfaces';
 
 interface Props {
     createModel(name: string, files: ModelFiles, global: boolean): void;
     isAdmin: boolean;
-    modelCreatingError: string;
     modelCreatingStatus: string;
 }
 
 export default class CreateModelContent extends React.PureComponent<Props> {
     private modelForm: WrappedCreateModelForm;
     private fileManagerContainer: FileManagerContainer;
+
     public constructor(props: Props) {
         super(props);
         this.modelForm = null as any as WrappedCreateModelForm;
         this.fileManagerContainer = null as any as FileManagerContainer;
     }
 
-    private handleSubmitClick = () => {
+    public componentDidUpdate(prevProps: Props): void {
+        const { modelCreatingStatus } = this.props;
+
+        if (prevProps.modelCreatingStatus !== 'CREATED'
+            && modelCreatingStatus === 'CREATED') {
+            message.success('The model has been uploaded');
+            this.modelForm.resetFields();
+            this.fileManagerContainer.reset();
+        }
+    }
+
+    private handleSubmitClick = (): void => {
+        const { createModel } = this.props;
         this.modelForm.submit()
             .then((data) => {
                 const {
                     local,
                     share,
-                }  = this.fileManagerContainer.getFiles();
+                } = this.fileManagerContainer.getFiles();
 
                 const files = local.length ? local : share;
                 const grouppedFiles: ModelFiles = {
@@ -64,74 +79,80 @@ export default class CreateModelContent extends React.PureComponent<Props> {
                 if (Object.keys(grouppedFiles)
                     .map((key: string) => grouppedFiles[key])
                     .filter((val) => !!val).length !== 4) {
-                        Modal.error({
-                            title: 'Could not upload a model',
-                            content: 'Please, specify correct files',
-                        });
-                    } else {
-                        this.props.createModel(data.name, grouppedFiles, data.global);
-                    }
+                    notification.error({
+                        message: 'Could not upload a model',
+                        description: 'Please, specify correct files',
+                    });
+                } else {
+                    createModel(data.name, grouppedFiles, data.global);
+                }
             }).catch(() => {
-                Modal.error({
-                    title: 'Could not upload a model',
-                    content: 'Please, check input fields',
+                notification.error({
+                    message: 'Could not upload a model',
+                    description: 'Please, check input fields',
                 });
-            })
-    }
-
-    public componentDidUpdate(prevProps: Props) {
-        if (prevProps.modelCreatingStatus !== 'CREATED'
-            && this.props.modelCreatingStatus === 'CREATED') {
-                message.success('The model has been uploaded');
-                this.modelForm.resetFields();
-                this.fileManagerContainer.reset();
-            }
-
-        if (!prevProps.modelCreatingError && this.props.modelCreatingError) {
-            Modal.error({
-                title: 'Could not create task',
-                content: this.props.modelCreatingError,
             });
-        }
-    }
+    };
 
-    public render() {
-        const loading = !!this.props.modelCreatingStatus
-            && this.props.modelCreatingStatus !== 'CREATED';
-        const status = this.props.modelCreatingStatus
-            && this.props.modelCreatingStatus !== 'CREATED' ? this.props.modelCreatingStatus : '';
+    public render(): JSX.Element {
+        const {
+            modelCreatingStatus,
+        } = this.props;
+        const loading = !!modelCreatingStatus
+            && modelCreatingStatus !== 'CREATED';
+        const status = modelCreatingStatus
+            && modelCreatingStatus !== 'CREATED' ? modelCreatingStatus : '';
 
-        const guideLink = 'https://github.com/opencv/cvat/tree/develop/cvat/apps/auto_annotation';
+        const { AUTO_ANNOTATION_GUIDE_URL } = consts;
         return (
             <Row type='flex' justify='start' align='middle' className='cvat-create-model-content'>
                 <Col span={24}>
-                    <Tooltip overlay='Click to open guide'>
-                        <Icon onClick={() => {window.open(guideLink, '_blank')}} type='question-circle'/>
+                    <Tooltip title='Click to open guide'>
+                        <Icon
+                            onClick={(): void => {
+                                // false positive
+                                // eslint-disable-next-line
+                                window.open(AUTO_ANNOTATION_GUIDE_URL, '_blank');
+                            }}
+                            type='question-circle'
+                        />
                     </Tooltip>
                 </Col>
                 <Col span={24}>
                     <CreateModelForm
                         wrappedComponentRef={
-                            (ref: WrappedCreateModelForm) => this.modelForm = ref
+                            (ref: WrappedCreateModelForm): void => {
+                                this.modelForm = ref;
+                            }
                         }
                     />
                 </Col>
                 <Col span={24}>
-                    <ConnectedFileManager ref={
-                        (container: FileManagerContainer) =>
-                            this.fileManagerContainer = container
-                    }/>
+                    <Text type='danger'>* </Text>
+                    <Text className='cvat-text-color'>Select files:</Text>
+                </Col>
+                <Col span={24}>
+                    <ConnectedFileManager
+                        ref={
+                            (container: FileManagerContainer): void => {
+                                this.fileManagerContainer = container;
+                            }
+                        }
+                        withRemote={false}
+                    />
                 </Col>
                 <Col span={18}>
-                    {status && <Alert message={`${status}`}/>}
+                    {status && <Alert message={`${status}`} />}
                 </Col>
                 <Col span={6}>
                     <Button
-                        type='danger'
+                        type='primary'
                         disabled={loading}
                         loading={loading}
                         onClick={this.handleSubmitClick}
-                    > Submit </Button>
+                    >
+                        Submit
+                    </Button>
                 </Col>
             </Row>
         );

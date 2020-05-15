@@ -1,27 +1,22 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
-
-import {
-    Row,
-    Col,
-    Form,
-    Input,
-    Tooltip,
-    Checkbox,
-} from 'antd';
-
-import { FormComponentProps } from 'antd/lib/form/Form';
+import { Row, Col } from 'antd/lib/grid';
+import Form, { FormComponentProps } from 'antd/lib/form/Form';
+import Input from 'antd/lib/input';
+import Tooltip from 'antd/lib/tooltip';
+import Checkbox from 'antd/lib/checkbox';
 import Text from 'antd/lib/typography/Text';
 
 type Props = FormComponentProps;
 
 export class CreateModelForm extends React.PureComponent<Props> {
-    public constructor(props: Props) {
-        super(props);
-    }
-
-    public submit(): Promise<{name: string, global: boolean}> {
+    public submit(): Promise<{name: string; global: boolean}> {
+        const { form } = this.props;
         return new Promise((resolve, reject) => {
-            this.props.form.validateFields((errors, values) => {
+            form.validateFields((errors, values): void => {
                 if (!errors) {
                     resolve({
                         name: values.name,
@@ -34,49 +29,49 @@ export class CreateModelForm extends React.PureComponent<Props> {
         });
     }
 
-    public resetFields() {
-        this.props.form.resetFields();
+    public resetFields(): void {
+        const { form } = this.props;
+        form.resetFields();
     }
 
-    public render() {
-        const { getFieldDecorator } = this.props.form;
+    public render(): JSX.Element {
+        const { form } = this.props;
+        const { getFieldDecorator } = form;
 
         return (
-            <Form onSubmit={(e: React.FormEvent) => e.preventDefault()}>
-                <Row type='flex'>
-                    <Col>
-                        <Text type='secondary'>Name</Text>
-                    </Col>
-                </Row>
+            <Form onSubmit={(e: React.FormEvent): void => e.preventDefault()}>
                 <Row>
+                    <Col span={24}>
+                        <Text type='danger'>* </Text>
+                        <Text className='cvat-text-color'>Name:</Text>
+                    </Col>
                     <Col span={14}>
-                        <Form.Item>
+                        <Form.Item hasFeedback>
                             { getFieldDecorator('name', {
                                 rules: [{
                                     required: true,
                                     message: 'Please, specify a model name',
                                 }],
-                            })(<Input placeholder='Model name'/>)}
+                            })(<Input placeholder='Model name' />)}
                         </Form.Item>
                     </Col>
                     <Col span={8} offset={2}>
                         <Form.Item>
-                            <Tooltip overlay='Will this model be availabe for everyone?'>
+                            <Tooltip title='Will this model be availabe for everyone?'>
                                 { getFieldDecorator('global', {
                                     initialValue: false,
                                     valuePropName: 'checked',
-                                })(<Checkbox>
-                                    <Text className='cvat-black-color'>
-                                        Load globally
-                                    </Text>
-                                </Checkbox>)}
+                                })(
+                                    <Checkbox>
+                                        <Text className='cvat-text-color'>
+                                            Load globally
+                                        </Text>
+                                    </Checkbox>,
+                                )}
                             </Tooltip>
                         </Form.Item>
                     </Col>
                 </Row>
-
-
-
             </Form>
         );
     }

@@ -1,157 +1,235 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
 import { RouteComponentProps } from 'react-router';
 import { withRouter } from 'react-router-dom';
-
 import Text from 'antd/lib/typography/Text';
-import {
-    Col,
-    Row,
-    Button,
-    Icon,
-    Progress,
-    Dropdown,
-} from 'antd';
-
+import { Row, Col } from 'antd/lib/grid';
+import Button from 'antd/lib/button';
+import Icon from 'antd/lib/icon';
+import Dropdown from 'antd/lib/dropdown';
+import Tooltip from 'antd/lib/tooltip';
+import Modal from 'antd/lib/modal';
+import Progress from 'antd/lib/progress';
 import moment from 'moment';
 
-import ActionsMenuContainer from '../../containers/actions-menu/actions-menu';
+import ActionsMenuContainer from 'containers/actions-menu/actions-menu';
+import { ActiveInference } from 'reducers/interfaces';
+import { MenuIcon } from 'icons';
 
 export interface TaskItemProps {
     taskInstance: any;
     previewImage: string;
     deleted: boolean;
+    hidden: boolean;
+    activeInference: ActiveInference | null;
+    cancelAutoAnnotation(): void;
 }
 
 class TaskItemComponent extends React.PureComponent<TaskItemProps & RouteComponentProps> {
-    constructor(props: TaskItemProps & RouteComponentProps) {
-        super(props);
-    }
-
-    private renderPreview() {
+    private renderPreview(): JSX.Element {
+        const { previewImage } = this.props;
         return (
             <Col span={4}>
                 <div className='cvat-task-item-preview-wrapper'>
-                    <img alt='Preview' className='cvat-task-item-preview' src={this.props.previewImage}/>
+                    <img alt='Preview' className='cvat-task-item-preview' src={previewImage} />
                 </div>
             </Col>
-        )
+        );
     }
 
-    private renderDescription() {
+    private renderDescription(): JSX.Element {
         // Task info
-        const task = this.props.taskInstance;
-        const { id } = task;
-        const owner = task.owner ? task.owner.username : null;
-        const updated = moment(task.updatedDate).fromNow();
-        const created = moment(task.createdDate).format('MMMM Do YYYY');
+        const { taskInstance } = this.props;
+        const { id } = taskInstance;
+        const owner = taskInstance.owner ? taskInstance.owner.username : null;
+        const updated = moment(taskInstance.updatedDate).fromNow();
+        const created = moment(taskInstance.createdDate).format('MMMM Do YYYY');
 
         // Get and truncate a task name
-        const name = `${task.name.substring(0, 70)}${task.name.length > 70 ? '...' : ''}`;
+        const name = `${taskInstance.name.substring(0, 70)}${taskInstance.name.length > 70 ? '...' : ''}`;
 
         return (
-            <Col span={10}>
-                <Text strong>{`${id} ${name}`}</Text> <br/>
-                { owner ?
-                    <>
-                        <Text type='secondary'>
-                            Created { owner ? 'by ' + owner : '' } on {created}
-                        </Text> <br/>
-                    </> : null
-                }
+            <Col span={10} className='cvat-task-item-description'>
+                <Text strong type='secondary'>{`#${id}: `}</Text>
+                <Text strong className='cvat-text-color'>{name}</Text>
+                <br />
+                { owner
+                    && (
+                        <>
+                            <Text type='secondary'>
+                                {`Created ${owner ? `by ${owner}` : ''} on ${created}`}
+                            </Text>
+                            <br />
+                        </>
+                    )}
                 <Text type='secondary'>{`Last updated ${updated}`}</Text>
             </Col>
-        )
+        );
     }
 
-    private renderProgress() {
-        const task = this.props.taskInstance;
+    private renderProgress(): JSX.Element {
+        const {
+            taskInstance,
+            activeInference,
+            cancelAutoAnnotation,
+        } = this.props;
         // Count number of jobs and performed jobs
-        const numOfJobs = task.jobs.length;
-        const numOfCompleted = task.jobs.filter(
-            (job: any) => job.status === 'completed'
+        const numOfJobs = taskInstance.jobs.length;
+        const numOfCompleted = taskInstance.jobs.filter(
+            (job: any): boolean => job.status === 'completed',
         ).length;
 
         // Progress appearence depends on number of jobs
-        const progressColor = numOfCompleted === numOfJobs ? 'cvat-task-completed-progress':
-            numOfCompleted ? 'cvat-task-progress-progress' : 'cvat-task-pending-progress';
+        let progressColor = null;
+        let progressText = null;
+        if (numOfCompleted === numOfJobs) {
+            progressColor = 'cvat-task-completed-progress';
+            progressText = <Text strong className={progressColor}>Completed</Text>;
+        } else if (numOfCompleted) {
+            progressColor = 'cvat-task-progress-progress';
+            progressText = <Text strong className={progressColor}>In Progress</Text>;
+        } else {
+            progressColor = 'cvat-task-pending-progress';
+            progressText = <Text strong className={progressColor}>Pending</Text>;
+        }
+
+        const jobsProgress = numOfCompleted / numOfJobs;
 
         return (
             <Col span={6}>
                 <Row type='flex' justify='space-between' align='top'>
                     <Col>
                         <svg height='8' width='8' className={progressColor}>
-                            <circle cx='4' cy='4' r='4' strokeWidth='0'/>
+                            <circle cx='4' cy='4' r='4' strokeWidth='0' />
                         </svg>
-                        { numOfCompleted === numOfJobs ?
-                            <Text strong className={progressColor}>{'Completed'}</Text>
-                            : numOfCompleted ?
-                            <Text strong className={progressColor}>{'In Progress'}</Text>
-                            : <Text strong className={progressColor}>{'Pending'}</Text>
-                        }
+                        { progressText }
                     </Col>
                     <Col>
                         <Text type='secondary'>{`${numOfCompleted} of ${numOfJobs} jobs`}</Text>
                     </Col>
                 </Row>
                 <Row>
-                    <Progress
+                    <Col>
+                        <Progress
                             className={`${progressColor} cvat-task-progress`}
-                            percent={numOfCompleted * 100 / numOfJobs}
+                            percent={jobsProgress * 100}
                             strokeColor='#1890FF'
                             showInfo={false}
                             strokeWidth={5}
                             size='small'
                         />
+                    </Col>
                 </Row>
+                { activeInference
+                    && (
+                        <>
+                            <Row>
+                                <Col>
+                                    <Text strong>Automatic annotation</Text>
+                                </Col>
+                            </Row>
+                            <Row type='flex' justify='space-between'>
+                                <Col span={22}>
+                                    <Progress
+                                        percent={Math.floor(activeInference.progress)}
+                                        strokeColor={{
+                                            from: '#108ee9',
+                                            to: '#87d068',
+                                        }}
+                                        showInfo={false}
+                                        strokeWidth={5}
+                                        size='small'
+                                    />
+                                </Col>
+                                <Col span={1} className='close-auto-annotation-icon'>
+                                    <Tooltip title='Cancel automatic annotation'>
+                                        <Icon
+                                            type='close'
+                                            onClick={() => {
+                                                Modal.confirm({
+                                                    title: 'You are going to cancel automatic annotation?',
+                                                    content: 'Reached progress will be lost. Continue?',
+                                                    okType: 'danger',
+                                                    onOk() {
+                                                        cancelAutoAnnotation();
+                                                    },
+                                                });
+                                            }}
+                                        />
+                                    </Tooltip>
+                                </Col>
+                            </Row>
+                        </>
+                    )}
             </Col>
-        )
+        );
     }
 
-    private renderNavigation() {
-        const subMenuIcon = () => (<img src='/assets/icon-sub-menu.svg'/>);
-        const { id } = this.props.taskInstance;
+    private renderNavigation(): JSX.Element {
+        const {
+            taskInstance,
+            history,
+        } = this.props;
+        const { id } = taskInstance;
 
         return (
             <Col span={4}>
                 <Row type='flex' justify='end'>
                     <Col>
-                        <Button type='primary' size='large' ghost onClick={
-                            () => this.props.history.push(`/tasks/${id}`)
-                        }> Open </Button>
+                        <Button
+                            className='cvat-item-open-task-button'
+                            type='primary'
+                            size='large'
+                            ghost
+                            href={`/tasks/${id}`}
+                            onClick={(e: React.MouseEvent): void => {
+                                e.preventDefault();
+                                history.push(`/tasks/${id}`)
+                            }}
+                        >
+                            Open
+                        </Button>
                     </Col>
                 </Row>
                 <Row type='flex' justify='end'>
-                    <Col>
-                        <Text className='cvat-black-color'>Actions</Text>
-                        <Dropdown overlay={
-                            <ActionsMenuContainer
-                                taskInstance={this.props.taskInstance}
-                            />
-                        }>
-                            <Icon className='cvat-task-item-menu-icon' component={subMenuIcon}/>
+                    <Col className='cvat-item-open-task-actions'>
+                        <Text className='cvat-text-color'>Actions</Text>
+                        <Dropdown overlay={<ActionsMenuContainer taskInstance={taskInstance} />}>
+                            <Icon className='cvat-menu-icon' component={MenuIcon} />
                         </Dropdown>
                     </Col>
                 </Row>
             </Col>
-        )
+        );
     }
 
-    public render() {
+    public render(): JSX.Element {
+        const {
+            deleted,
+            hidden,
+        } = this.props;
         const style = {};
-        if (this.props.deleted) {
+        if (deleted) {
             (style as any).pointerEvents = 'none';
             (style as any).opacity = 0.5;
         }
 
+        if (hidden) {
+            (style as any).display = 'none';
+        }
+
         return (
-            <Row className='cvat-tasks-list-item' type='flex' justify='center' align='top' style={{...style}}>
+            <Row className='cvat-tasks-list-item' type='flex' justify='center' align='top' style={{ ...style }}>
                 {this.renderPreview()}
                 {this.renderDescription()}
                 {this.renderProgress()}
                 {this.renderNavigation()}
             </Row>
-        )
-    };
+        );
+    }
 }
 
 export default withRouter(TaskItemComponent);

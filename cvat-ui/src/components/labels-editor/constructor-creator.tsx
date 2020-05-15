@@ -1,26 +1,21 @@
-import React from 'react';
-import LabelForm from './label-form';
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
 
-import { Label, Attribute } from './common';
+import React from 'react';
+
+import LabelForm from './label-form';
+import { Label } from './common';
 
 interface Props {
     onCreate: (label: Label | null) => void;
 }
 
-interface State {
-    attributes: Attribute[];
-}
-
-export default class ConstructorCreator extends React.PureComponent<Props, State> {
-    public constructor(props: Props) {
-        super(props);
-    }
-
-    public render() {
-        return (
-            <div className='cvat-label-constructor-creator'>
-                <LabelForm label={null} onSubmit={this.props.onCreate}/>
-            </div>
-        );
-    }
+export default function ConstructorCreator(props: Props): JSX.Element {
+    const { onCreate } = props;
+    return (
+        <div className='cvat-label-constructor-creator'>
+            <LabelForm label={null} onSubmit={onCreate} />
+        </div>
+    );
 }

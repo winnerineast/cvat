@@ -1,60 +1,67 @@
+// Copyright (C) 2020 Intel Corporation
+//
+// SPDX-License-Identifier: MIT
+
 import React from 'react';
 import { connect } from 'react-redux';
 import { withRouter } from 'react-router-dom';
 import { RouteComponentProps } from 'react-router';
 
-import { getTasksAsync } from '../../actions/tasks-actions';
+import { getTasksAsync } from 'actions/tasks-actions';
 
-import TaskPageComponent from '../../components/task-page/task-page';
+import TaskPageComponent from 'components/task-page/task-page';
 import {
     Task,
     CombinedState,
-} from '../../reducers/interfaces';
+} from 'reducers/interfaces';
 
 type Props = RouteComponentProps<{id: string}>;
 
 interface StateToProps {
-    task: Task;
-    taskFetchingError: any;
-    taskUpdatingError: any;
-    taskDeletingError: any;
+    task: Task | null | undefined;
+    fetching: boolean;
     deleteActivity: boolean | null;
     installedGit: boolean;
 }
 
 interface DispatchToProps {
-    fetchTask: (tid: number) => void;
+    getTask: () => void;
 }
 
 function mapStateToProps(state: CombinedState, own: Props): StateToProps {
-    const { plugins } = state.plugins;
-    const { deletes } = state.tasks.activities;
-    const taskDeletingError = deletes.deletingError;
+    const { list } = state.plugins;
+    const { tasks } = state;
+    const { gettingQuery } = tasks;
+    const { deletes } = tasks.activities;
+
     const id = +own.match.params.id;
 
-    const filtered = state.tasks.current.filter((task) => task.instance.id === id);
-    const task = filtered[0] || null;
+    const filteredTasks = state.tasks.current
+        .filter((task) => task.instance.id === id);
+
+    const task = filteredTasks[0] || (gettingQuery.id === id || Number.isNaN(id)
+        ? undefined : null);
 
     let deleteActivity = null;
-    if (task && id in deletes.byTask) {
-        deleteActivity = deletes.byTask[id];
+    if (task && id in deletes) {
+        deleteActivity = deletes[id];
     }
 
     return {
         task,
-        taskFetchingError: state.tasks.tasksFetchingError,
-        taskUpdatingError: state.tasks.taskUpdatingError,
-        taskDeletingError,
         deleteActivity,
-        installedGit: plugins.GIT_INTEGRATION,
+        fetching: state.tasks.fetching,
+        installedGit: list.GIT_INTEGRATION,
     };
 }
 
-function mapDispatchToProps(dispatch: any): DispatchToProps {
+function mapDispatchToProps(dispatch: any, own: Props): DispatchToProps {
+    const id = +own.match.params.id;
+
     return {
-        fetchTask: (tid: number) => {
+        getTask: (): void => {
             dispatch(getTasksAsync({
-                id: tid,
+                id,
                 page: 1,
                 search: null,
                 owner: null,
@@ -67,17 +74,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
     };
 }
 
-function TaskPageContainer(props: StateToProps & DispatchToProps) {
+function TaskPageContainer(props: StateToProps & DispatchToProps): JSX.Element {
     return (
-        <TaskPageComponent
-            task={props.task}
-            taskDeletingError={props.taskDeletingError ? props.taskDeletingError.toString() : ''}
-            taskFetchingError={props.taskFetchingError ? props.taskFetchingError.toString() : ''}
-            taskUpdatingError={props.taskUpdatingError ? props.taskUpdatingError.toString() : ''}
-            deleteActivity={props.deleteActivity}
-            installedGit={props.installedGit}
-            onFetchTask={props.fetchTask}
-        />
+        <TaskPageComponent {...props} />
     );
 }
 
