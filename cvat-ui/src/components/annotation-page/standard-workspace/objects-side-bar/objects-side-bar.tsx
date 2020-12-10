@@ -3,78 +3,102 @@
 // SPDX-License-Identifier: MIT
 
 import './styles.scss';
-import React from 'react';
+import React, { Dispatch, useEffect } from 'react';
+import { AnyAction } from 'redux';
+import { connect } from 'react-redux';
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import Text from 'antd/lib/typography/Text';
-import Icon from 'antd/lib/icon';
 import Tabs from 'antd/lib/tabs';
 import Layout from 'antd/lib/layout';
-import { RadioChangeEvent } from 'antd/lib/radio';
-import { SliderValue } from 'antd/lib/slider';
-import { CheckboxChangeEvent } from 'antd/lib/checkbox';
 
-import { ColorBy } from 'reducers/interfaces';
-import ObjectsListContainer from 'containers/annotation-page/standard-workspace/objects-side-bar/objects-list';
+import { Canvas } from 'cvat-canvas-wrapper';
+import { CombinedState } from 'reducers/interfaces';
 import LabelsListContainer from 'containers/annotation-page/standard-workspace/objects-side-bar/labels-list';
-import AppearanceBlock from './appearance-block';
+import {
+    collapseSidebar as collapseSidebarAction,
+    updateTabContentHeight as updateTabContentHeightAction,
+} from 'actions/annotation-actions';
+import AppearanceBlock, { computeHeight } from 'components/annotation-page/appearance-block';
+import IssuesListComponent from 'components/annotation-page/standard-workspace/objects-side-bar/issues-list';
 
-interface Props {
-    sidebarCollapsed: boolean;
-    appearanceCollapsed: boolean;
-    colorBy: ColorBy;
-    opacity: number;
-    selectedOpacity: number;
-    blackBorders: boolean;
-    showBitmap: boolean;
-    showProjections: boolean;
-
-    collapseSidebar(): void;
-    collapseAppearance(): void;
-
-    changeShapesColorBy(event: RadioChangeEvent): void;
-    changeShapesOpacity(event: SliderValue): void;
-    changeSelectedShapesOpacity(event: SliderValue): void;
-    changeShapesBlackBorders(event: CheckboxChangeEvent): void;
-    changeShowBitmap(event: CheckboxChangeEvent): void;
-    changeShowProjections(event: CheckboxChangeEvent): void;
+interface OwnProps {
+    objectsList: JSX.Element;
 }
 
-function ObjectsSideBar(props: Props): JSX.Element {
+interface StateToProps {
+    sidebarCollapsed: boolean;
+    canvasInstance: Canvas;
+}
+
+interface DispatchToProps {
+    collapseSidebar(): void;
+    updateTabContentHeight(): void;
+}
+
+function mapStateToProps(state: CombinedState): StateToProps {
     const {
+        annotation: {
+            sidebarCollapsed,
+            canvas: { instance: canvasInstance },
+        },
+    } = state;
+
+    return {
         sidebarCollapsed,
-        appearanceCollapsed,
-        colorBy,
-        opacity,
-        selectedOpacity,
-        blackBorders,
-        showBitmap,
-        showProjections,
-        collapseSidebar,
-        collapseAppearance,
-        changeShapesColorBy,
-        changeShapesOpacity,
-        changeSelectedShapesOpacity,
-        changeShapesBlackBorders,
-        changeShowBitmap,
-        changeShowProjections,
+        canvasInstance,
+    };
+}
+
+function mapDispatchToProps(dispatch: Dispatch<AnyAction>): DispatchToProps {
+    return {
+        collapseSidebar(): void {
+            dispatch(collapseSidebarAction());
+        },
+        updateTabContentHeight(): void {
+            const height = computeHeight();
+            dispatch(updateTabContentHeightAction(height));
+        },
+    };
+}
+
+function ObjectsSideBar(props: StateToProps & DispatchToProps & OwnProps): JSX.Element {
+    const {
+        sidebarCollapsed, canvasInstance, collapseSidebar, updateTabContentHeight, objectsList,
     } = props;
 
-    const appearanceProps = {
-        collapseAppearance,
-        appearanceCollapsed,
-        colorBy,
-        opacity,
-        selectedOpacity,
-        blackBorders,
-        showBitmap,
-        showProjections,
+    useEffect(() => {
+        const alignTabHeight = (): void => {
+            if (!sidebarCollapsed) {
+                updateTabContentHeight();
+            }
+        };
 
-        changeShapesColorBy,
-        changeShapesOpacity,
-        changeSelectedShapesOpacity,
-        changeShapesBlackBorders,
-        changeShowBitmap,
-        changeShowProjections,
-    };
+        window.addEventListener('resize', alignTabHeight);
+        alignTabHeight();
+
+        return () => {
+            window.removeEventListener('resize', alignTabHeight);
+        };
+    }, []);
+
+    useEffect(() => {
+        const listener = (event: Event): void => {
+            if (
+                (event as TransitionEvent).propertyName === 'width' &&
+                ((event.target as any).classList as DOMTokenList).contains('ant-tabs-tab-prev')
+            ) {
+                canvasInstance.fit();
+            }
+        };
+
+        const [sidebar] = window.document.getElementsByClassName('cvat-objects-sidebar');
+
+        sidebar.addEventListener('transitionstart', listener);
+
+        return () => {
+            sidebar.removeEventListener('transitionstart', listener);
+        };
+    }, []);
 
     return (
         <Layout.Sider
@@ -94,28 +118,24 @@ function ObjectsSideBar(props: Props): JSX.Element {
                     ant-layout-sider-zero-width-trigger-left`}
                 onClick={collapseSidebar}
             >
-                {sidebarCollapsed ? <Icon type='menu-fold' title='Show' />
-                    : <Icon type='menu-unfold' title='Hide' />}
+                {sidebarCollapsed ? <MenuFoldOutlined title='Show' /> : <MenuUnfoldOutlined title='Hide' />}
             </span>
 
             <Tabs type='card' defaultActiveKey='objects' className='cvat-objects-sidebar-tabs'>
-                <Tabs.TabPane
-                    tab={<Text strong>Objects</Text>}
-                    key='objects'
-                >
-                    <ObjectsListContainer />
+                <Tabs.TabPane tab={<Text strong>Objects</Text>} key='objects'>
+                    {objectsList}
                 </Tabs.TabPane>
-                <Tabs.TabPane
-                    tab={<Text strong>Labels</Text>}
-                    key='labels'
-                >
+                <Tabs.TabPane tab={<Text strong>Labels</Text>} key='labels'>
                     <LabelsListContainer />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab={<Text strong>Issues</Text>} key='issues'>
+                    <IssuesListComponent />
                 </Tabs.TabPane>
             </Tabs>
 
-            { !sidebarCollapsed && <AppearanceBlock {...appearanceProps} /> }
+            {!sidebarCollapsed && <AppearanceBlock />}
         </Layout.Sider>
     );
 }
 
-export default React.memo(ObjectsSideBar);
+export default connect(mapStateToProps, mapDispatchToProps)(React.memo(ObjectsSideBar));

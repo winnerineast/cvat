@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { Col } from 'antd/lib/grid';
-import Icon from 'antd/lib/icon';
+import Icon from '@ant-design/icons';
 import Select from 'antd/lib/select';
 import Button from 'antd/lib/button';
 
@@ -44,22 +44,16 @@ function RightGroup(props: Props): JSX.Element {
             </Button>
             <div>
                 <Select
+                    dropdownClassName='cvat-workspace-selector-dropdown'
                     className='cvat-workspace-selector'
                     onChange={changeWorkspace}
                     value={workspace}
                 >
-                    <Select.Option
-                        key={Workspace.STANDARD}
-                        value={Workspace.STANDARD}
-                    >
-                        {Workspace.STANDARD}
-                    </Select.Option>
-                    <Select.Option
-                        key={Workspace.ATTRIBUTE_ANNOTATION}
-                        value={Workspace.ATTRIBUTE_ANNOTATION}
-                    >
-                        {Workspace.ATTRIBUTE_ANNOTATION}
-                    </Select.Option>
+                    {Object.values(Workspace).map((ws) => (
+                        <Select.Option key={ws} value={ws}>
+                            {ws}
+                        </Select.Option>
+                    ))}
                 </Select>
             </div>
         </Col>

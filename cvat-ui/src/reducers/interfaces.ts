@@ -4,6 +4,7 @@
 
 import { ExtendedKeyMapOptions } from 'react-hotkeys';
 import { Canvas, RectDrawingMethod } from 'cvat-canvas-wrapper';
+import { MutableRefObject } from 'react';
 
 export type StringObject = {
     [index: string]: string;
@@ -13,6 +14,40 @@ export interface AuthState {
     initialized: boolean;
     fetching: boolean;
     user: any;
+    authActionsFetching: boolean;
+    authActionsInitialized: boolean;
+    showChangePasswordDialog: boolean;
+    allowChangePassword: boolean;
+    allowResetPassword: boolean;
+}
+
+export interface ProjectsQuery {
+    page: number;
+    id: number | null;
+    search: string | null;
+    owner: string | null;
+    name: string | null;
+    status: string | null;
+    [key: string]: string | number | null | undefined;
+}
+
+export type Project = any;
+
+export interface ProjectsState {
+    initialized: boolean;
+    fetching: boolean;
+    count: number;
+    current: Project[];
+    gettingQuery: ProjectsQuery;
+    activities: {
+        creates: {
+            id: null | number;
+            error: string;
+        };
+        deletes: {
+            [projectId: number]: boolean; // deleted (deleting if in dictionary)
+        };
+    };
 }
 
 export interface TasksQuery {
@@ -35,6 +70,7 @@ export interface Task {
 export interface TasksState {
     initialized: boolean;
     fetching: boolean;
+    updating: boolean;
     hideEmpty: boolean;
     gettingQuery: TasksQuery;
     count: number;
@@ -56,6 +92,7 @@ export interface TasksState {
             [tid: number]: boolean; // deleted (deleting if in dictionary)
         };
         creates: {
+            taskId: number | null;
             status: string;
             error: string;
         };
@@ -71,26 +108,18 @@ export interface FormatsState {
 // eslint-disable-next-line import/prefer-default-export
 export enum SupportedPlugins {
     GIT_INTEGRATION = 'GIT_INTEGRATION',
-    AUTO_ANNOTATION = 'AUTO_ANNOTATION',
-    TF_ANNOTATION = 'TF_ANNOTATION',
-    TF_SEGMENTATION = 'TF_SEGMENTATION',
-    DEXTR_SEGMENTATION = 'DEXTR_SEGMENTATION',
     ANALYTICS = 'ANALYTICS',
-    REID = 'REID',
+    MODELS = 'MODELS',
 }
+
+export type PluginsList = {
+    [name in SupportedPlugins]: boolean;
+};
 
 export interface PluginsState {
     fetching: boolean;
     initialized: boolean;
-    list: {
-        [name in SupportedPlugins]: boolean;
-    };
-}
-
-export interface UsersState {
-    users: any[];
-    fetching: boolean;
-    initialized: boolean;
+    list: PluginsList;
 }
 
 export interface AboutState {
@@ -117,7 +146,8 @@ export interface UserAgreementsState {
     initialized: boolean;
 }
 
-export interface ShareFileInfo { // get this data from cvat-core
+export interface ShareFileInfo {
+    // get this data from cvat-core
     name: string;
     type: 'DIR' | 'REG';
 }
@@ -133,13 +163,21 @@ export interface ShareState {
 }
 
 export interface Model {
-    id: number | null; // null for preinstalled models
-    ownerID: number | null; // null for preinstalled models
+    id: string;
     name: string;
-    primary: boolean;
-    uploadDate: string;
-    updateDate: string;
     labels: string[];
+    framework: string;
+    description: string;
+    type: string;
+    params: {
+        canvas: Record<string, unknown>;
+    };
+}
+
+export enum TaskStatus {
+    ANNOTATION = 'annotation',
+    REVIEW = 'validation',
+    COMPLETED = 'completed',
 }
 
 export enum RQStatus {
@@ -150,24 +188,21 @@ export enum RQStatus {
     failed = 'failed',
 }
 
-export enum ModelType {
-    OPENVINO = 'openvino',
-    RCNN = 'rcnn',
-    MASK_RCNN = 'mask_rcnn',
-}
-
 export interface ActiveInference {
     status: RQStatus;
     progress: number;
     error: string;
-    modelType: ModelType;
+    id: string;
 }
 
 export interface ModelsState {
     initialized: boolean;
     fetching: boolean;
     creatingStatus: string;
-    models: Model[];
+    interactors: Model[];
+    detectors: Model[];
+    trackers: Model[];
+    reid: Model[];
     inferences: {
         [index: number]: ActiveInference;
     };
@@ -175,17 +210,10 @@ export interface ModelsState {
     activeRunTask: any;
 }
 
-export interface ModelFiles {
-    [key: string]: string | File;
-    xml: string | File;
-    bin: string | File;
-    py: string | File;
-    json: string | File;
-}
-
 export interface ErrorState {
     message: string;
     reason: string;
+    className?: string;
 }
 
 export interface NotificationsState {
@@ -195,6 +223,16 @@ export interface NotificationsState {
             login: null | ErrorState;
             logout: null | ErrorState;
             register: null | ErrorState;
+            changePassword: null | ErrorState;
+            requestPasswordReset: null | ErrorState;
+            resetPassword: null | ErrorState;
+            loadAuthActions: null | ErrorState;
+        };
+        projects: {
+            fetching: null | ErrorState;
+            updating: null | ErrorState;
+            deleting: null | ErrorState;
+            creating: null | ErrorState;
         };
         tasks: {
             fetching: null | ErrorState;
@@ -218,9 +256,7 @@ export interface NotificationsState {
             fetching: null | ErrorState;
         };
         models: {
-            creating: null | ErrorState;
             starting: null | ErrorState;
-            deleting: null | ErrorState;
             fetching: null | ErrorState;
             canceling: null | ErrorState;
             metaFetching: null | ErrorState;
@@ -246,6 +282,7 @@ export interface NotificationsState {
             undo: null | ErrorState;
             redo: null | ErrorState;
             search: null | ErrorState;
+            searchEmptyFrame: null | ErrorState;
             savingLogs: null | ErrorState;
         };
         boundaries: {
@@ -254,8 +291,14 @@ export interface NotificationsState {
         userAgreements: {
             fetching: null | ErrorState;
         };
-
-        [index: string]: any;
+        review: {
+            initialization: null | ErrorState;
+            finishingIssue: null | ErrorState;
+            resolvingIssue: null | ErrorState;
+            reopeningIssue: null | ErrorState;
+            commentingIssue: null | ErrorState;
+            submittingReview: null | ErrorState;
+        };
     };
     messages: {
         tasks: {
@@ -264,8 +307,12 @@ export interface NotificationsState {
         models: {
             inferenceDone: string;
         };
-
-        [index: string]: any;
+        auth: {
+            changePasswordDone: string;
+            registerDone: string;
+            requestPasswordResetDone: string;
+            resetPasswordDone: string;
+        };
     };
 }
 
@@ -282,6 +329,8 @@ export enum ActiveControl {
     GROUP = 'group',
     SPLIT = 'split',
     EDIT = 'edit',
+    OPEN_ISSUE = 'open_issue',
+    AI_TOOLS = 'ai_tools',
 }
 
 export enum ShapeType {
@@ -305,7 +354,6 @@ export enum StatesOrdering {
 }
 
 export enum ContextMenuType {
-    CANVAS = 'canvas',
     CANVAS_SHAPE = 'canvas_shape',
     CANVAS_SHAPE_POINT = 'canvas_shape_point',
 }
@@ -329,6 +377,7 @@ export interface AnnotationState {
             left: number;
             type: ContextMenuType;
             pointID: number | null;
+            clientID: number | null;
         };
         instance: Canvas;
         ready: boolean;
@@ -355,6 +404,7 @@ export interface AnnotationState {
         frameAngles: number[];
     };
     drawing: {
+        activeInteractor?: Model;
         activeShapeType: ShapeType;
         activeRectDrawingMethod?: RectDrawingMethod;
         activeNumOfPoints?: number;
@@ -367,6 +417,7 @@ export interface AnnotationState {
         activatedStateID: number | null;
         activatedAttributeID: number | null;
         collapsed: Record<number, boolean>;
+        collapsedAll: boolean;
         states: any[];
         filters: string[];
         filtersHistory: string[];
@@ -376,6 +427,7 @@ export interface AnnotationState {
             redo: [string, number][];
         };
         saving: {
+            forceExit: boolean;
             uploading: boolean;
             statuses: string[];
         };
@@ -395,15 +447,20 @@ export interface AnnotationState {
         data: any;
     };
     colors: any[];
+    requestReviewDialogVisible: boolean;
+    submitReviewDialogVisible: boolean;
     sidebarCollapsed: boolean;
     appearanceCollapsed: boolean;
     tabContentHeight: number;
     workspace: Workspace;
+    aiToolsRef: MutableRefObject<any>;
 }
 
 export enum Workspace {
     STANDARD = 'Standard',
     ATTRIBUTE_ANNOTATION = 'Attribute annotation',
+    TAG_ANNOTATION = 'Tag annotation',
+    REVIEW_WORKSPACE = 'Review',
 }
 
 export enum GridColor {
@@ -430,6 +487,7 @@ export enum ColorBy {
 }
 
 export interface PlayerSettingsState {
+    canvasBackgroundColor: string;
     frameStep: number;
     frameSpeed: FrameSpeed;
     resetZoom: boolean;
@@ -456,7 +514,8 @@ export interface ShapesSettingsState {
     colorBy: ColorBy;
     opacity: number;
     selectedOpacity: number;
-    blackBorders: boolean;
+    outlined: boolean;
+    outlineColor: string;
     showBitmap: boolean;
     showProjections: boolean;
 }
@@ -465,6 +524,7 @@ export interface SettingsState {
     shapes: ShapesSettingsState;
     workspace: WorkspaceSettingsState;
     player: PlayerSettingsState;
+    showDialog: boolean;
 }
 
 export interface ShortcutsState {
@@ -473,10 +533,30 @@ export interface ShortcutsState {
     normalizedKeyMap: Record<string, string>;
 }
 
+export enum ReviewStatus {
+    ACCEPTED = 'accepted',
+    REJECTED = 'rejected',
+    REVIEW_FURTHER = 'review_further',
+}
+
+export interface ReviewState {
+    reviews: any[];
+    issues: any[];
+    frameIssues: any[];
+    latestComments: string[];
+    activeReview: any | null;
+    newIssuePosition: number[] | null;
+    issuesHidden: boolean;
+    fetching: {
+        reviewId: number | null;
+        issueId: number | null;
+    };
+}
+
 export interface CombinedState {
     auth: AuthState;
+    projects: ProjectsState;
     tasks: TasksState;
-    users: UsersState;
     about: AboutState;
     share: ShareState;
     formats: FormatsState;
@@ -487,4 +567,5 @@ export interface CombinedState {
     annotation: AnnotationState;
     settings: SettingsState;
     shortcuts: ShortcutsState;
+    review: ReviewState;
 }

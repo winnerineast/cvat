@@ -4,7 +4,7 @@
 
 import React from 'react';
 import Popover from 'antd/lib/popover';
-import Icon from 'antd/lib/icon';
+import Icon from '@ant-design/icons';
 
 import { Canvas } from 'cvat-canvas-wrapper';
 import { TagIcon } from 'icons';
@@ -17,9 +17,7 @@ interface Props {
 }
 
 function SetupTagControl(props: Props): JSX.Element {
-    const {
-        isDrawing,
-    } = props;
+    const { isDrawing } = props;
 
     const dynamcPopoverPros = isDrawing ? {
         overlayStyle: {
@@ -32,13 +30,9 @@ function SetupTagControl(props: Props): JSX.Element {
             {...dynamcPopoverPros}
             placement='right'
             overlayClassName='cvat-draw-shape-popover'
-            content={(
-                <SetupTagPopoverContainer />
-            )}
+            content={<SetupTagPopoverContainer />}
         >
-            <Icon
-                component={TagIcon}
-            />
+            <Icon className='cvat-setup-tag-control' component={TagIcon} />
         </Popover>
     );
 }

@@ -7,7 +7,6 @@
 /.env
 /keys
 /logs
-/components/openvino/*.tgz
 /profiles
 /ssh/*
 !/ssh/README.md
@@ -31,3 +30,7 @@ yarn-debug.log*
 yarn-error.log*
 
 .DS_Store
+
+#Ignore Cypress tests temp files
+/tests/cypress/fixtures
+/tests/cypress/screenshots

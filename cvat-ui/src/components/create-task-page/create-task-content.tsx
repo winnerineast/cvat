@@ -2,7 +2,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React from 'react';
+import React, { RefObject } from 'react';
+import { RouteComponentProps } from 'react-router';
+import { withRouter } from 'react-router-dom';
 import { Row, Col } from 'antd/lib/grid';
 import Alert from 'antd/lib/alert';
 import Button from 'antd/lib/button';
@@ -10,35 +12,41 @@ import Collapse from 'antd/lib/collapse';
 import notification from 'antd/lib/notification';
 import Text from 'antd/lib/typography/Text';
 
-import FileManagerContainer from 'containers/file-manager/file-manager';
+import ConnectedFileManager from 'containers/file-manager/file-manager';
+import LabelsEditor from 'components/labels-editor/labels-editor';
+import { Files } from 'components/file-manager/file-manager';
 import BasicConfigurationForm, { BaseConfiguration } from './basic-configuration-form';
+import ProjectSearchField from './project-search-field';
 import AdvancedConfigurationForm, { AdvancedConfiguration } from './advanced-configuration-form';
-import LabelsEditor from '../labels-editor/labels-editor';
-import { Files } from '../file-manager/file-manager';
 
 export interface CreateTaskData {
+    projectId: number | null;
     basic: BaseConfiguration;
     advanced: AdvancedConfiguration;
     labels: any[];
     files: Files;
+    activeFileManagerTab: string;
 }
 
 interface Props {
     onCreate: (data: CreateTaskData) => void;
     status: string;
+    taskId: number | null;
+    projectId: number | null;
     installedGit: boolean;
 }
 
 type State = CreateTaskData;
 
 const defaultState = {
+    projectId: null,
     basic: {
         name: '',
     },
     advanced: {
-        zOrder: false,
         lfs: false,
         useZipChunks: true,
+        useCache: true,
     },
     labels: [],
     files: {
@@ -46,29 +54,45 @@ const defaultState = {
         share: [],
         remote: [],
     },
+    activeFileManagerTab: 'local',
 };
 
-export default class CreateTaskContent extends React.PureComponent<Props, State> {
-    private basicConfigurationComponent: any;
-    private advancedConfigurationComponent: any;
+class CreateTaskContent extends React.PureComponent<Props & RouteComponentProps, State> {
+    private basicConfigurationComponent: RefObject<BasicConfigurationForm>;
+    private advancedConfigurationComponent: RefObject<AdvancedConfigurationForm>;
     private fileManagerContainer: any;
 
-    public constructor(props: Props) {
+    public constructor(props: Props & RouteComponentProps) {
         super(props);
         this.state = { ...defaultState };
+        this.basicConfigurationComponent = React.createRef<BasicConfigurationForm>();
+        this.advancedConfigurationComponent = React.createRef<AdvancedConfigurationForm>();
+    }
+
+    public componentDidMount(): void {
+        const { projectId } = this.props;
+
+        if (projectId) {
+            this.handleProjectIdChange(projectId);
+        }
     }
 
     public componentDidUpdate(prevProps: Props): void {
-        const { status } = this.props;
+        const { status, history, taskId } = this.props;
 
         if (status === 'CREATED' && prevProps.status !== 'CREATED') {
+            const btn = <Button onClick={() => history.push(`/tasks/${taskId}`)}>Open task</Button>;
+
             notification.info({
                 message: 'The task has been created',
+                btn,
             });
 
-            this.basicConfigurationComponent.resetFields();
-            if (this.advancedConfigurationComponent) {
-                this.advancedConfigurationComponent.resetFields();
+            if (this.basicConfigurationComponent.current) {
+                this.basicConfigurationComponent.current.resetFields();
+            }
+            if (this.advancedConfigurationComponent.current) {
+                this.advancedConfigurationComponent.current.resetFields();
             }
 
             this.fileManagerContainer.reset();
@@ -79,9 +103,9 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
         }
     }
 
-    private validateLabels = (): boolean => {
-        const { labels } = this.state;
-        return !!labels.length;
+    private validateLabelsOrProject = (): boolean => {
+        const { projectId, labels } = this.state;
+        return !!labels.length || !!projectId;
     };
 
     private validateFiles = (): boolean => {
@@ -89,11 +113,15 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
         this.setState({
             files,
         });
-        const totalLen = Object.keys(files).reduce(
-            (acc, key) => acc + files[key].length, 0,
-        );
+        const totalLen = Object.keys(files).reduce((acc, key) => acc + files[key].length, 0);
 
         return !!totalLen;
+    };
+
+    private handleProjectIdChange = (value: null | number): void => {
+        this.setState({
+            projectId: value,
+        });
     };
 
     private handleSubmitBasicConfiguration = (values: BaseConfiguration): void => {
@@ -108,11 +136,19 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
         });
     };
 
+    private changeFileManagerTab = (key: string): void => {
+        const values = this.state;
+        this.setState({
+            ...values,
+            activeFileManagerTab: key,
+        });
+    };
+
     private handleSubmitClick = (): void => {
-        if (!this.validateLabels()) {
+        if (!this.validateLabelsOrProject()) {
             notification.error({
                 message: 'Could not create a task',
-                description: 'A task must contain at least one label',
+                description: 'A task must contain at least one label or belong to some project',
             });
             return;
         }
@@ -125,41 +161,70 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
             return;
         }
 
-        this.basicConfigurationComponent.submit()
-            .then(() => {
-                if (this.advancedConfigurationComponent) {
-                    return this.advancedConfigurationComponent.submit();
-                }
+        if (this.basicConfigurationComponent.current) {
+            this.basicConfigurationComponent.current.submit()
+                .then(() => {
+                    if (this.advancedConfigurationComponent.current) {
+                        return this.advancedConfigurationComponent.current.submit();
+                    }
 
-                return new Promise((resolve): void => {
-                    resolve();
+                    return new Promise((resolve): void => {
+                        resolve();
+                    });
+                }).then((): void => {
+                    const { onCreate } = this.props;
+                    onCreate(this.state);
+                })
+                .catch((error: Error): void => {
+                    notification.error({
+                        message: 'Could not create a task',
+                        description: error.toString(),
+                    });
                 });
-            }).then((): void => {
-                const { onCreate } = this.props;
-                onCreate(this.state);
-            }).catch((error: Error): void => {
-                notification.error({
-                    message: 'Could not create a task',
-                    description: error.toString(),
-                });
-            });
+        }
     };
 
     private renderBasicBlock(): JSX.Element {
         return (
             <Col span={24}>
                 <BasicConfigurationForm
-                    wrappedComponentRef={
-                        (component: any): void => { this.basicConfigurationComponent = component; }
-                    }
+                    ref={this.basicConfigurationComponent}
                     onSubmit={this.handleSubmitBasicConfiguration}
                 />
             </Col>
         );
     }
 
+    private renderProjectBlock(): JSX.Element {
+        const { projectId } = this.state;
+
+        return (
+            <>
+                <Col span={24}>
+                    <Text className='cvat-text-color'>Project:</Text>
+                </Col>
+                <Col span={24}>
+                    <ProjectSearchField onSelect={this.handleProjectIdChange} value={projectId} />
+                </Col>
+            </>
+        );
+    }
+
     private renderLabelsBlock(): JSX.Element {
-        const { labels } = this.state;
+        const { projectId, labels } = this.state;
+
+        if (projectId) {
+            return (
+                <>
+                    <Col span={24}>
+                        <Text className='cvat-text-color'>Labels:</Text>
+                    </Col>
+                    <Col span={24}>
+                        <Text type='secondary'>Project labels will be used</Text>
+                    </Col>
+                </>
+            );
+        }
 
         return (
             <Col span={24}>
@@ -167,13 +232,11 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
                 <Text className='cvat-text-color'>Labels:</Text>
                 <LabelsEditor
                     labels={labels}
-                    onSubmit={
-                        (newLabels): void => {
-                            this.setState({
-                                labels: newLabels,
-                            });
-                        }
-                    }
+                    onSubmit={(newLabels): void => {
+                        this.setState({
+                            labels: newLabels,
+                        });
+                    }}
                 />
             </Col>
         );
@@ -184,10 +247,11 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
             <Col span={24}>
                 <Text type='danger'>* </Text>
                 <Text className='cvat-text-color'>Select files:</Text>
-                <FileManagerContainer
-                    ref={
-                        (container: any): void => { this.fileManagerContainer = container; }
-                    }
+                <ConnectedFileManager
+                    onChangeActiveKey={this.changeFileManagerTab}
+                    ref={(container: any): void => {
+                        this.fileManagerContainer = container;
+                    }}
                     withRemote
                 />
             </Col>
@@ -196,22 +260,15 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
 
     private renderAdvancedBlock(): JSX.Element {
         const { installedGit } = this.props;
+        const { activeFileManagerTab } = this.state;
         return (
             <Col span={24}>
                 <Collapse>
-                    <Collapse.Panel
-                        key='1'
-                        header={
-                            <Text className='cvat-title'>Advanced configuration</Text>
-                        }
-                    >
+                    <Collapse.Panel key='1' header={<Text className='cvat-title'>Advanced configuration</Text>}>
                         <AdvancedConfigurationForm
                             installedGit={installedGit}
-                            wrappedComponentRef={
-                                (component: any): void => {
-                                    this.advancedConfigurationComponent = component;
-                                }
-                            }
+                            activeFileManagerTab={activeFileManagerTab}
+                            ref={this.advancedConfigurationComponent}
                             onSubmit={this.handleSubmitAdvancedConfiguration}
                         />
                     </Collapse.Panel>
@@ -225,26 +282,20 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
         const loading = !!status && status !== 'CREATED' && status !== 'FAILED';
 
         return (
-            <Row type='flex' justify='start' align='middle' className='cvat-create-task-content'>
+            <Row justify='start' align='middle' className='cvat-create-task-content'>
                 <Col span={24}>
                     <Text className='cvat-title'>Basic configuration</Text>
                 </Col>
 
-                { this.renderBasicBlock() }
-                { this.renderLabelsBlock() }
-                { this.renderFilesBlock() }
-                { this.renderAdvancedBlock() }
+                {this.renderBasicBlock()}
+                {this.renderProjectBlock()}
+                {this.renderLabelsBlock()}
+                {this.renderFilesBlock()}
+                {this.renderAdvancedBlock()}
 
-                <Col span={18}>
-                    {loading ? <Alert message={status} /> : null}
-                </Col>
-                <Col span={6}>
-                    <Button
-                        loading={loading}
-                        disabled={loading}
-                        type='primary'
-                        onClick={this.handleSubmitClick}
-                    >
+                <Col span={18}>{loading ? <Alert message={status} /> : null}</Col>
+                <Col span={6} className='cvat-create-task-submit-section'>
+                    <Button loading={loading} disabled={loading} type='primary' onClick={this.handleSubmitClick}>
                         Submit
                     </Button>
                 </Col>
@@ -252,3 +303,5 @@ export default class CreateTaskContent extends React.PureComponent<Props, State>
         );
     }
 }
+
+export default withRouter(CreateTaskContent);

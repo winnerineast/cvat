@@ -6,7 +6,8 @@
 
 .cvat-task-details-wrapper {
     overflow-y: auto;
-    height: 100%;
+    height: 90%;
+    width: 100%;
 
     .cvat-task-details {
         width: 100%;
@@ -15,6 +16,12 @@
         border-radius: 3px;
         padding: 20px;
         background: $background-color-1;
+
+        .cvat-task-details-user-block {
+            > div:nth-child(2) > span {
+                margin-right: 8px;
+            }
+        }
 
         > div:nth-child(2) {
             > div:nth-child(2) {
@@ -51,7 +58,7 @@
         }
     }
 
-    > .ant-tag > i {
+    > .ant-tag > span[role='img'] {
         margin-right: 5px;
     }
 }
@@ -71,24 +78,23 @@
 }
 
 .cvat-task-top-bar {
-    margin-top: 20px;
-    margin-bottom: 10px;
+    margin: $grid-unit-size * 2 0;
 }
 
 .cvat-task-preview-wrapper {
     overflow: hidden;
     margin-bottom: 20px;
-    width: 252px;
-    height: 144px;
+    width: $grid-unit-size * 32;
+    height: $grid-unit-size * 18;
     display: table-cell;
     text-align: center;
     vertical-align: middle;
     background-color: $background-color-2;
 }
 
-.cvat-user-selector {
-    margin-left: 10px;
-    width: 150px;
+.cvat-task-parameters {
+    margin-top: $grid-unit-size * 2;
+    width: $grid-unit-size * 32;
 }
 
 .cvat-open-bug-tracker-button {
@@ -96,7 +102,7 @@
 }
 
 .ant-typography.cvat-jobs-header {
-    margin-bottom: 0px;
+    margin-bottom: 0;
     font-size: 20px;
     font-weight: bold;
 }
@@ -107,6 +113,30 @@
 
     > .ant-table-pagination.ant-pagination {
         float: none;
+    }
+}
+
+.cvat-job-item-status {
+    .cvat-job-annotation-color,
+    .cvat-job-validation-color,
+    .cvat-job-completed-color {
+        span {
+            margin-left: $grid-unit-size;
+        }
+    }
+}
+
+.cvat-review-summary-description {
+    color: white;
+
+    .ant-typography {
+        color: white;
+    }
+
+    tr {
+        > td:nth-child(2) {
+            padding-left: $grid-unit-size;
+        }
     }
 }
 

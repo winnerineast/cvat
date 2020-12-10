@@ -4,17 +4,15 @@
 
 import React from 'react';
 import { Row, Col } from 'antd/lib/grid';
-import Icon from 'antd/lib/icon';
-import Popover from 'antd/lib/popover';
 import Button from 'antd/lib/button';
 import Text from 'antd/lib/typography/Text';
-
-import ColorChanger from 'components/annotation-page/standard-workspace/objects-side-bar/color-changer';
+import {
+    LockFilled, UnlockOutlined, EyeInvisibleFilled, EyeOutlined,
+} from '@ant-design/icons';
 
 interface Props {
     labelName: string;
     labelColor: string;
-    labelColors: string[];
     visible: boolean;
     statesHidden: boolean;
     statesLocked: boolean;
@@ -22,14 +20,12 @@ interface Props {
     showStates(): void;
     lockStates(): void;
     unlockStates(): void;
-    changeColor(color: string): void;
 }
 
 function LabelItemComponent(props: Props): JSX.Element {
     const {
         labelName,
         labelColor,
-        labelColors,
         visible,
         statesHidden,
         statesLocked,
@@ -37,43 +33,49 @@ function LabelItemComponent(props: Props): JSX.Element {
         showStates,
         lockStates,
         unlockStates,
-        changeColor,
     } = props;
+
+    const classes = {
+        lock: {
+            enabled: { className: 'cvat-label-item-button-lock cvat-label-item-button-lock-enabled' },
+            disabled: { className: 'cvat-label-item-button-lock' },
+        },
+        hidden: {
+            enabled: { className: 'cvat-label-item-button-hidden cvat-label-item-button-hidden-enabled' },
+            disabled: { className: 'cvat-label-item-button-hidden' },
+        },
+    };
 
     return (
         <Row
-            type='flex'
             align='middle'
             justify='space-around'
             className='cvat-objects-sidebar-label-item'
             style={{ display: visible ? 'flex' : 'none' }}
         >
             <Col span={4}>
-                <Popover
-                    placement='left'
-                    trigger='click'
-                    content={(
-                        <ColorChanger
-                            onChange={changeColor}
-                            colors={labelColors}
-                        />
-                    )}
-                >
-                    <Button style={{ background: labelColor }} className='cvat-label-item-color-button' />
-                </Popover>
+                <Button style={{ background: labelColor }} className='cvat-label-item-color-button'>
+                    {' '}
+                </Button>
             </Col>
             <Col span={14}>
-                <Text strong className='cvat-text'>{labelName}</Text>
+                <Text strong className='cvat-text'>
+                    {labelName}
+                </Text>
             </Col>
             <Col span={3}>
-                { statesLocked
-                    ? <Icon type='lock' onClick={unlockStates} />
-                    : <Icon type='unlock' onClick={lockStates} />}
+                {statesLocked ? (
+                    <LockFilled {...classes.lock.enabled} onClick={unlockStates} />
+                ) : (
+                    <UnlockOutlined {...classes.lock.disabled} onClick={lockStates} />
+                )}
             </Col>
             <Col span={3}>
-                { statesHidden
-                    ? <Icon type='eye-invisible' onClick={showStates} />
-                    : <Icon type='eye' onClick={hideStates} />}
+                {statesHidden ? (
+                    <EyeInvisibleFilled {...classes.hidden.enabled} onClick={showStates} />
+                ) : (
+                    <EyeOutlined {...classes.hidden.disabled} onClick={hideStates} />
+                )}
             </Col>
         </Row>
     );

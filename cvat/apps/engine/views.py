@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2019 Intel Corporation
+# Copyright (C) 2018-2020 Intel Corporation
 #
 # SPDX-License-Identifier: MIT
 
@@ -7,17 +7,18 @@ import os.path as osp
 import shutil
 import traceback
 from datetime import datetime
+from distutils.util import strtobool
 from tempfile import mkstemp
 
 import django_rq
+from django.shortcuts import get_object_or_404
+from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import IntegrityError
-from django.http import HttpResponse, HttpResponseNotFound
-from django.shortcuts import render
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
-from django.views.generic import RedirectView
 from django_filters import rest_framework as filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_yasg import openapi
@@ -25,7 +26,7 @@ from drf_yasg.inspectors import CoreAPICompatInspector, NotHandled
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
@@ -34,57 +35,24 @@ from sendfile import sendfile
 import cvat.apps.dataset_manager as dm
 import cvat.apps.dataset_manager.views # pylint: disable=unused-import
 from cvat.apps.authentication import auth
-from cvat.apps.authentication.decorators import login_required
 from cvat.apps.dataset_manager.serializers import DatasetFormatsSerializer
 from cvat.apps.engine.frame_provider import FrameProvider
-from cvat.apps.engine.models import Job, Plugin, StatusChoice, Task
+from cvat.apps.engine.models import (
+    Job, StatusChoice, Task, Project, Review, Issue,
+    Comment, StorageMethodChoice, ReviewStatus, StorageChoice
+)
 from cvat.apps.engine.serializers import (
     AboutSerializer, AnnotationFileSerializer, BasicUserSerializer,
     DataMetaSerializer, DataSerializer, ExceptionSerializer,
     FileInfoSerializer, JobSerializer, LabeledDataSerializer,
-    LogEventSerializer, PluginSerializer, ProjectSerializer,
-    RqStatusSerializer, TaskSerializer, UserSerializer)
-from cvat.settings.base import CSS_3RDPARTY, JS_3RDPARTY
+    LogEventSerializer, ProjectSerializer, ProjectSearchSerializer, RqStatusSerializer,
+    TaskSerializer, UserSerializer, PluginsSerializer, ReviewSerializer,
+    CombinedReviewSerializer, IssueSerializer, CombinedIssueSerializer, CommentSerializer
+)
+from cvat.apps.engine.utils import av_scan_paths
 
 from . import models, task
 from .log import clogger, slogger
-
-
-# drf-yasg component doesn't handle correctly URL_FORMAT_OVERRIDE and
-# send requests with ?format=openapi suffix instead of ?scheme=openapi.
-# We map the required paramater explicitly and add it into query arguments
-# on the server side.
-def wrap_swagger(view):
-    @login_required
-    def _map_format_to_schema(request, scheme=None):
-        if 'format' in request.GET:
-            request.GET = request.GET.copy()
-            format_alias = settings.REST_FRAMEWORK['URL_FORMAT_OVERRIDE']
-            request.GET[format_alias] = request.GET['format']
-
-        return view(request, format=scheme)
-
-    return _map_format_to_schema
-
-# Server REST API
-@login_required
-def dispatch_request(request):
-    """An entry point to dispatch legacy requests"""
-    if 'dashboard' in request.path or (request.path == '/' and 'id' not in request.GET):
-        return RedirectView.as_view(
-            url=settings.UI_URL,
-            permanent=True,
-            query_string=True
-        )(request)
-    elif request.method == 'GET' and 'id' in request.GET and request.path == '/':
-        return render(request, 'engine/annotation.html', {
-            'css_3rdparty': CSS_3RDPARTY.get('engine', []),
-            'js_3rdparty': JS_3RDPARTY.get('engine', []),
-            'status_list': [str(i) for i in StatusChoice],
-            'ui_url': settings.UI_URL
-        })
-    else:
-        return HttpResponseNotFound()
 
 
 class ServerViewSet(viewsets.ViewSet):
@@ -208,18 +176,34 @@ class ServerViewSet(viewsets.ViewSet):
         data = dm.views.get_all_formats()
         return Response(DatasetFormatsSerializer(data).data)
 
+    @staticmethod
+    @swagger_auto_schema(method='get', operation_summary='Method provides allowed plugins.',
+        responses={'200': PluginsSerializer()})
+    @action(detail=False, methods=['GET'], url_path='plugins', serializer_class=PluginsSerializer)
+    def plugins(request):
+        response = {
+            'GIT_INTEGRATION': apps.is_installed('cvat.apps.dataset_repo'),
+            'ANALYTICS':       False,
+            'MODELS':          False,
+        }
+        if strtobool(os.environ.get("CVAT_ANALYTICS", '0')):
+            response['ANALYTICS'] = True
+        if strtobool(os.environ.get("CVAT_SERVERLESS", '0')):
+            response['MODELS'] = True
+        return Response(response)
+
+
 class ProjectFilter(filters.FilterSet):
     name = filters.CharFilter(field_name="name", lookup_expr="icontains")
     owner = filters.CharFilter(field_name="owner__username", lookup_expr="icontains")
     status = filters.CharFilter(field_name="status", lookup_expr="icontains")
-    assignee = filters.CharFilter(field_name="assignee__username", lookup_expr="icontains")
 
     class Meta:
         model = models.Project
-        fields = ("id", "name", "owner", "status", "assignee")
+        fields = ("id", "name", "owner", "status")
 
 @method_decorator(name='list', decorator=swagger_auto_schema(
-    operation_summary='Returns a paginated list of projects according to query parameters (10 projects per page)',
+    operation_summary='Returns a paginated list of projects according to query parameters (12 projects per page)',
     manual_parameters=[
         openapi.Parameter('id', openapi.IN_QUERY, description="A unique number value identifying this project",
             type=openapi.TYPE_NUMBER),
@@ -228,20 +212,23 @@ class ProjectFilter(filters.FilterSet):
         openapi.Parameter('owner', openapi.IN_QUERY, description="Find all project where owner name contains a parameter value",
             type=openapi.TYPE_STRING),
         openapi.Parameter('status', openapi.IN_QUERY, description="Find all projects with a specific status",
-            type=openapi.TYPE_STRING, enum=[str(i) for i in StatusChoice]),
-        openapi.Parameter('assignee', openapi.IN_QUERY, description="Find all projects where assignee name contains a parameter value",
-            type=openapi.TYPE_STRING)]))
+            type=openapi.TYPE_STRING, enum=[str(i) for i in StatusChoice])]))
 @method_decorator(name='create', decorator=swagger_auto_schema(operation_summary='Method creates a new project'))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(operation_summary='Method returns details of a specific project'))
 @method_decorator(name='destroy', decorator=swagger_auto_schema(operation_summary='Method deletes a specific project'))
 @method_decorator(name='partial_update', decorator=swagger_auto_schema(operation_summary='Methods does a partial update of chosen fields in a project'))
 class ProjectViewSet(auth.ProjectGetQuerySetMixin, viewsets.ModelViewSet):
     queryset = models.Project.objects.all().order_by('-id')
-    serializer_class = ProjectSerializer
-    search_fields = ("name", "owner__username", "assignee__username", "status")
+    search_fields = ("name", "owner__username", "status")
     filterset_class = ProjectFilter
     ordering_fields = ("id", "name", "owner", "status", "assignee")
     http_method_names = ['get', 'post', 'head', 'patch', 'delete']
+
+    def get_serializer_class(self):
+        if self.request.query_params and self.request.query_params.get("names_only") == "true":
+            return ProjectSearchSerializer
+        else:
+            return ProjectSerializer
 
     def get_permissions(self):
         http_method = self.request.method
@@ -261,9 +248,19 @@ class ProjectViewSet(auth.ProjectGetQuerySetMixin, viewsets.ModelViewSet):
         return [perm() for perm in permissions]
 
     def perform_create(self, serializer):
-        if self.request.data.get('owner', None):
+        def validate_project_limit(owner):
+            admin_perm = auth.AdminRolePermission()
+            is_admin = admin_perm.has_permission(self.request, self)
+            if not is_admin and settings.RESTRICTIONS['project_limit'] is not None and \
+                Project.objects.filter(owner=owner).count() >= settings.RESTRICTIONS['project_limit']:
+                raise serializers.ValidationError('The user has the maximum number of projects')
+
+        owner = self.request.data.get('owner', None)
+        if owner:
+            validate_project_limit(owner)
             serializer.save()
         else:
+            validate_project_limit(self.request.user)
             serializer.save(owner=self.request.user)
 
     @swagger_auto_schema(method='get', operation_summary='Returns information of the tasks of the project with the selected id',
@@ -388,7 +385,9 @@ class TaskViewSet(auth.TaskGetQuerySetMixin, viewsets.ModelViewSet):
 
         return Response(serializer.data)
 
-    @swagger_auto_schema(method='post', operation_summary='Method permanently attaches images or video to a task')
+    @swagger_auto_schema(method='post', operation_summary='Method permanently attaches images or video to a task',
+        request_body=DataSerializer,
+    )
     @swagger_auto_schema(method='get', operation_summary='Method returns data for a specific task',
         manual_parameters=[
             openapi.Parameter('type', in_=openapi.IN_QUERY, required=True, type=openapi.TYPE_STRING,
@@ -412,6 +411,14 @@ class TaskViewSet(auth.TaskGetQuerySetMixin, viewsets.ModelViewSet):
             db_task.save()
             data = {k:v for k, v in serializer.data.items()}
             data['use_zip_chunks'] = serializer.validated_data['use_zip_chunks']
+            data['use_cache'] = serializer.validated_data['use_cache']
+            data['copy_data'] = serializer.validated_data['copy_data']
+            if data['use_cache']:
+                db_task.data.storage_method = StorageMethodChoice.CACHE
+                db_task.data.save(update_fields=['storage_method'])
+            if data['server_files'] and data.get('copy_data') == False:
+                db_task.data.storage = StorageChoice.SHARE
+                db_task.data.save(update_fields=['storage'])
             # if the value of stop_frame is 0, then inside the function we cannot know
             # the value specified by the user or it's default value from the database
             if 'stop_frame' not in serializer.validated_data:
@@ -426,26 +433,36 @@ class TaskViewSet(auth.TaskGetQuerySetMixin, viewsets.ModelViewSet):
             possible_data_type_values = ('chunk', 'frame', 'preview')
             possible_quality_values = ('compressed', 'original')
 
-            if not data_type or data_type not in possible_data_type_values:
-                return Response(data='data type not specified or has wrong value', status=status.HTTP_400_BAD_REQUEST)
-            elif data_type == 'chunk' or data_type == 'frame':
-                if not data_id:
-                    return Response(data='number not specified', status=status.HTTP_400_BAD_REQUEST)
-                elif data_quality not in possible_quality_values:
-                    return Response(data='wrong quality value', status=status.HTTP_400_BAD_REQUEST)
-
             try:
+                if not data_type or data_type not in possible_data_type_values:
+                    raise ValidationError(detail='Data type not specified or has wrong value')
+                elif data_type == 'chunk' or data_type == 'frame':
+                    if not data_id:
+                        raise ValidationError(detail='Number is not specified')
+                    elif data_quality not in possible_quality_values:
+                        raise ValidationError(detail='Wrong quality value')
+
                 db_task = self.get_object()
+                db_data = db_task.data
+                if not db_data:
+                    raise NotFound(detail='Cannot find requested data for the task')
+
                 frame_provider = FrameProvider(db_task.data)
 
                 if data_type == 'chunk':
                     data_id = int(data_id)
+
                     data_quality = FrameProvider.Quality.COMPRESSED \
                         if data_quality == 'compressed' else FrameProvider.Quality.ORIGINAL
-                    path = os.path.realpath(frame_provider.get_chunk(data_id, data_quality))
+
+                    #TODO: av.FFmpegError processing
+                    if settings.USE_CACHE and db_data.storage_method == StorageMethodChoice.CACHE:
+                        buff, mime_type = frame_provider.get_chunk(data_id, data_quality)
+                        return HttpResponse(buff.getvalue(), content_type=mime_type)
 
                     # Follow symbol links if the chunk is a link on a real image otherwise
                     # mimetype detection inside sendfile will work incorrectly.
+                    path = os.path.realpath(frame_provider.get_chunk(data_id, data_quality))
                     return sendfile(request, path)
 
                 elif data_type == 'frame':
@@ -461,7 +478,11 @@ class TaskViewSet(auth.TaskGetQuerySetMixin, viewsets.ModelViewSet):
                 else:
                     return Response(data='unknown data type {}.'.format(data_type), status=status.HTTP_400_BAD_REQUEST)
             except APIException as e:
-                return Response(data=e.default_detail, status=e.status_code)
+                return Response(data=e.get_full_details(), status=e.status_code)
+            except FileNotFoundError as ex:
+                msg = f"{ex.strerror} {ex.filename}"
+                slogger.task[pk].error(msg, exc_info=True)
+                return Response(data=msg, status=status.HTTP_404_NOT_FOUND)
             except Exception as e:
                 msg = 'cannot get requested data type: {}, number: {}, quality: {}'.format(data_type, data_id, data_quality)
                 slogger.task[pk].error(msg, exc_info=True)
@@ -655,7 +676,7 @@ class JobViewSet(viewsets.GenericViewSet,
 
         if http_method in SAFE_METHODS:
             permissions.append(auth.JobAccessPermission)
-        elif http_method in ["PATCH", "PUT", "DELETE"]:
+        elif http_method in ['PATCH', 'PUT', 'DELETE']:
             permissions.append(auth.JobChangePermission)
         else:
             permissions.append(auth.AdminRolePermission)
@@ -710,7 +731,178 @@ class JobViewSet(viewsets.GenericViewSet,
                     return Response(data=str(e), status=status.HTTP_400_BAD_REQUEST)
                 return Response(data)
 
+    @swagger_auto_schema(method='get', operation_summary='Method returns list of reviews for the job',
+        responses={'200': ReviewSerializer(many=True)}
+    )
+    @action(detail=True, methods=['GET'], serializer_class=ReviewSerializer)
+    def reviews(self, request, pk):
+        db_job = self.get_object()
+        queryset = db_job.review_set
+        serializer = ReviewSerializer(queryset, context={'request': request}, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(method='get', operation_summary='Method returns list of issues for the job',
+        responses={'200': CombinedIssueSerializer(many=True)}
+    )
+    @action(detail=True, methods=['GET'], serializer_class=CombinedIssueSerializer)
+    def issues(self, request, pk):
+        db_job = self.get_object()
+        queryset = db_job.issue_set
+        serializer = CombinedIssueSerializer(queryset, context={'request': request}, many=True)
+        return Response(serializer.data)
+
+@method_decorator(name='create', decorator=swagger_auto_schema(operation_summary='Submit a review for a job'))
+@method_decorator(name='destroy', decorator=swagger_auto_schema(operation_summary='Method removes a review from a job'))
+class ReviewViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin, mixins.CreateModelMixin):
+    queryset = Review.objects.all().order_by('id')
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CombinedReviewSerializer
+        else:
+            return ReviewSerializer
+
+    def get_permissions(self):
+        permissions = [IsAuthenticated]
+        if self.request.method == 'POST':
+            permissions.append(auth.JobReviewPermission)
+        else:
+            permissions.append(auth.AdminRolePermission)
+
+        return [perm() for perm in permissions]
+
+    def create(self, request, *args, **kwargs):
+        job_id = request.data['job']
+        db_job = get_object_or_404(Job, pk=job_id)
+        self.check_object_permissions(self.request, db_job)
+
+        if request.data['status'] == ReviewStatus.REVIEW_FURTHER:
+            if 'reviewer_id' not in request.data:
+                return Response('Must provide a new reviewer', status=status.HTTP_400_BAD_REQUEST)
+            reviewer_id = request.data['reviewer_id']
+            reviewer = get_object_or_404(User, pk=reviewer_id)
+
+        request.data.update({
+            'reviewer_id': request.user.id,
+        })
+        if db_job.assignee:
+            request.data.update({
+                'assignee_id': db_job.assignee.id,
+            })
+
+        issue_set = request.data['issue_set']
+        for issue in issue_set:
+            issue['job'] = db_job.id
+            issue['owner_id'] = request.user.id
+            comment_set = issue['comment_set']
+            for comment in comment_set:
+                comment['author_id'] = request.user.id
+
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+
+        if serializer.data['status'] == ReviewStatus.ACCEPTED:
+            db_job.status = StatusChoice.COMPLETED
+            db_job.save()
+        elif serializer.data['status'] == ReviewStatus.REJECTED:
+            db_job.status = StatusChoice.ANNOTATION
+            db_job.save()
+        else:
+            db_job.reviewer = reviewer
+            db_job.save()
+
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+@method_decorator(name='destroy', decorator=swagger_auto_schema(operation_summary='Method removes an issue from a job'))
+@method_decorator(name='partial_update', decorator=swagger_auto_schema(operation_summary='Method updates an issue. It is used to resolve/reopen an issue'))
+class IssueViewSet(viewsets.GenericViewSet,  mixins.DestroyModelMixin, mixins.UpdateModelMixin):
+    queryset = Issue.objects.all().order_by('id')
+    http_method_names = ['get', 'patch', 'delete', 'options']
+
+    def get_serializer_class(self):
+        return IssueSerializer
+
+    def partial_update(self, request, *args, **kwargs):
+        db_issue = self.get_object()
+        if 'resolver_id' in request.data and request.data['resolver_id'] and db_issue.resolver is None:
+            # resolve
+            db_issue.resolver = request.user
+            db_issue.resolved_date = datetime.now()
+            db_issue.save(update_fields=['resolver', 'resolved_date'])
+        elif 'resolver_id' in request.data and not request.data['resolver_id'] and db_issue.resolver is not None:
+            # reopen
+            db_issue.resolver = None
+            db_issue.resolved_date = None
+            db_issue.save(update_fields=['resolver', 'resolved_date'])
+        serializer = self.get_serializer(db_issue)
+        return Response(serializer.data)
+
+    def get_permissions(self):
+        http_method = self.request.method
+        permissions = [IsAuthenticated]
+
+        if http_method in SAFE_METHODS:
+            permissions.append(auth.IssueAccessPermission)
+        elif http_method in ['DELETE']:
+            permissions.append(auth.IssueDestroyPermission)
+        elif http_method in ['PATCH']:
+            permissions.append(auth.IssueChangePermission)
+        else:
+            permissions.append(auth.AdminRolePermission)
+
+        return [perm() for perm in permissions]
+
+    @swagger_auto_schema(method='get', operation_summary='The action returns all comments of a specific issue',
+        responses={'200': CommentSerializer(many=True)}
+    )
+    @action(detail=True, methods=['GET'], serializer_class=CommentSerializer)
+    def comments(self, request, pk):
+        db_issue = self.get_object()
+        queryset = db_issue.comment_set
+        serializer = CommentSerializer(queryset, context={'request': request}, many=True)
+        return Response(serializer.data)
+
+@method_decorator(name='partial_update', decorator=swagger_auto_schema(operation_summary='Method updates comment in an issue'))
+@method_decorator(name='destroy', decorator=swagger_auto_schema(operation_summary='Method removes a comment from an issue'))
+class CommentViewSet(viewsets.GenericViewSet,
+    mixins.DestroyModelMixin, mixins.UpdateModelMixin, mixins.CreateModelMixin):
+    queryset = Comment.objects.all().order_by('id')
+    serializer_class = CommentSerializer
+    http_method_names = ['get', 'post', 'patch', 'delete', 'options']
+
+    def create(self, request, *args, **kwargs):
+        request.data.update({
+            'author_id': request.user.id,
+        })
+        issue_id = request.data['issue']
+        db_issue = get_object_or_404(Issue, pk=issue_id)
+        self.check_object_permissions(self.request, db_issue.job)
+        return super().create(request, args, kwargs)
+
+    def get_permissions(self):
+        http_method = self.request.method
+        permissions = [IsAuthenticated]
+
+        if http_method in ['PATCH', 'DELETE']:
+            permissions.append(auth.CommentChangePermission)
+        elif http_method in ['POST']:
+            permissions.append(auth.CommentCreatePermission)
+        else:
+            permissions.append(auth.AdminRolePermission)
+
+        return [perm() for perm in permissions]
+
+class UserFilter(filters.FilterSet):
+    class Meta:
+        model = User
+        fields = ("id",)
+
 @method_decorator(name='list', decorator=swagger_auto_schema(
+    manual_parameters=[
+            openapi.Parameter('id',openapi.IN_QUERY,description="A unique number value identifying this user",type=openapi.TYPE_NUMBER),
+    ],
     operation_summary='Method provides a paginated list of users registered on the server'))
 @method_decorator(name='retrieve', decorator=swagger_auto_schema(
     operation_summary='Method provides information of a specific user'))
@@ -720,8 +912,10 @@ class JobViewSet(viewsets.GenericViewSet,
     operation_summary='Method deletes a specific user from the server'))
 class UserViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
     mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin):
-    queryset = User.objects.all().order_by('id')
+    queryset = User.objects.prefetch_related('groups').all().order_by('id')
     http_method_names = ['get', 'post', 'head', 'patch', 'delete']
+    search_fields = ('username', 'first_name', 'last_name')
+    filterset_class = UserFilter
 
     def get_serializer_class(self):
         user = self.request.user
@@ -755,33 +949,6 @@ class UserViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
         serializer_class = self.get_serializer_class()
         serializer = serializer_class(request.user, context={ "request": request })
         return Response(serializer.data)
-
-class PluginViewSet(viewsets.ModelViewSet):
-    queryset = Plugin.objects.all()
-    serializer_class = PluginSerializer
-
-    # @action(detail=True, methods=['GET', 'PATCH', 'PUT'], serializer_class=None)
-    # def config(self, request, name):
-    #     pass
-
-    # @action(detail=True, methods=['GET', 'POST'], serializer_class=None)
-    # def data(self, request, name):
-    #     pass
-
-    # @action(detail=True, methods=['GET', 'DELETE', 'PATCH', 'PUT'],
-    #     serializer_class=None, url_path='data/(?P<id>\d+)')
-    # def data_detail(self, request, name, id):
-    #     pass
-
-
-    @action(detail=True, methods=['GET', 'POST'], serializer_class=RqStatusSerializer)
-    def requests(self, request, name):
-        pass
-
-    @action(detail=True, methods=['GET', 'DELETE'],
-        serializer_class=RqStatusSerializer, url_path='requests/(?P<id>\d+)')
-    def request_detail(self, request, name, rq_id):
-        pass
 
 def rq_handler(job, exc_type, exc_value, tb):
     job.exc_info = "".join(
@@ -821,6 +988,8 @@ def _import_annotations(request, rq_id, rq_func, pk, format_name):
             with open(filename, 'wb+') as f:
                 for chunk in anno_file.chunks():
                     f.write(chunk)
+
+            av_scan_paths(filename)
             rq_job = queue.enqueue_call(
                 func=rq_func,
                 args=(pk, filename, format_name),

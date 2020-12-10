@@ -4,7 +4,7 @@
 
 import React from 'react';
 import Popover from 'antd/lib/popover';
-import Icon from 'antd/lib/icon';
+import Icon from '@ant-design/icons';
 
 import { Canvas } from 'cvat-canvas-wrapper';
 import { PolylineIcon } from 'icons';
@@ -20,32 +20,33 @@ interface Props {
 function DrawPolylineControl(props: Props): JSX.Element {
     const { canvasInstance, isDrawing } = props;
 
-    const dynamcPopoverPros = isDrawing ? {
-        overlayStyle: {
-            display: 'none',
-        },
-    } : {};
+    const dynamcPopoverPros = isDrawing ?
+        {
+            overlayStyle: {
+                display: 'none',
+            },
+        } :
+        {};
 
-    const dynamicIconProps = isDrawing ? {
-        className: 'cvat-active-canvas-control',
-        onClick: (): void => {
-            canvasInstance.draw({ enabled: false });
-        },
-    } : {};
+    const dynamicIconProps = isDrawing ?
+        {
+            className: 'cvat-draw-polyline-control cvat-active-canvas-control',
+            onClick: (): void => {
+                canvasInstance.draw({ enabled: false });
+            },
+        } :
+        {
+            className: 'cvat-draw-polyline-control',
+        };
 
     return (
         <Popover
             {...dynamcPopoverPros}
             overlayClassName='cvat-draw-shape-popover'
             placement='right'
-            content={(
-                <DrawShapePopoverContainer shapeType={ShapeType.POLYLINE} />
-            )}
+            content={<DrawShapePopoverContainer shapeType={ShapeType.POLYLINE} />}
         >
-            <Icon
-                {...dynamicIconProps}
-                component={PolylineIcon}
-            />
+            <Icon {...dynamicIconProps} component={PolylineIcon} />
         </Popover>
     );
 }
