@@ -1,9 +1,9 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2020-2021 Intel Corporation
 //
 // SPDX-License-Identifier: MIT
 
 import React, { useState, useEffect } from 'react';
-import { GlobalHotKeys, ExtendedKeyMapOptions } from 'react-hotkeys';
+import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import { connect } from 'react-redux';
 import Layout, { SiderProps } from 'antd/lib/layout';
 import { SelectValue } from 'antd/lib/select';
@@ -35,7 +35,7 @@ interface StateToProps {
     states: any[];
     labels: any[];
     jobInstance: any;
-    keyMap: Record<string, ExtendedKeyMapOptions>;
+    keyMap: KeyMap;
     normalizedKeyMap: Record<string, string>;
     canvasInstance: Canvas;
     canvasIsReady: boolean;
@@ -125,14 +125,16 @@ function AttributeAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.
     const collapse = (): void => {
         const [collapser] = window.document.getElementsByClassName('attribute-annotation-sidebar');
 
+        const listener = (event: TransitionEvent): void => {
+            if (event.target && event.propertyName === 'width' && event.target === collapser) {
+                canvasInstance.fitCanvas();
+                canvasInstance.fit();
+                (collapser as HTMLElement).removeEventListener('transitionend', listener as any);
+            }
+        };
+
         if (collapser) {
-            collapser.addEventListener(
-                'transitionend',
-                () => {
-                    canvasInstance.fitCanvas();
-                },
-                { once: true },
-            );
+            (collapser as HTMLElement).addEventListener('transitionend', listener as any);
         }
 
         setSidebarCollapsed(!sidebarCollapsed);
@@ -293,7 +295,7 @@ function AttributeAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.
                 >
                     {sidebarCollapsed ? <MenuFoldOutlined title='Show' /> : <MenuUnfoldOutlined title='Hide' />}
                 </span>
-                <GlobalHotKeys keyMap={subKeyMap} handlers={handlers} allowChanges />
+                <GlobalHotKeys keyMap={subKeyMap} handlers={handlers} />
                 <Row>
                     <Col span={24}>
                         <AnnotationsFiltersInput />
